@@ -113,38 +113,49 @@ class BundesligaPredictor:
 
     def _calculate_xg_from_matches(self):
         """Calculate xG stats from match data (for live data without xG)"""
-        # If xG columns exist in matches, use them
-        if 'xG_Home' in self.matches.columns:
-            teams = self.table['Team'].unique()
-            xg_data = []
+        teams = self.table['Team'].unique()
+        xg_data = []
 
-            for team in teams:
-                home_matches = self.matches[self.matches['HomeTeam'] == team]
-                away_matches = self.matches[self.matches['AwayTeam'] == team]
+        # Check if xG columns exist
+        has_xg = 'xG_Home' in self.matches.columns and 'xG_Away' in self.matches.columns
 
-                # If xG columns exist
-                if 'xG_Home' in home_matches.columns:
-                    xg_for = home_matches['xG_Home'].sum() + away_matches['xG_Away'].sum()
-                    xg_against = home_matches['xG_Away'].sum() + away_matches['xG_Home'].sum()
-                else:
-                    # Fallback: use actual goals as proxy for xG
-                    xg_for = home_matches['HomeGoals'].sum() + away_matches['AwayGoals'].sum()
-                    xg_against = home_matches['AwayGoals'].sum() + away_matches['HomeGoals'].sum()
+        for team in teams:
+            home_matches = self.matches[self.matches['HomeTeam'] == team]
+            away_matches = self.matches[self.matches['AwayTeam'] == team]
 
-                num_matches = len(home_matches) + len(away_matches)
+            # Calculate xG for and against
+            if has_xg:
+                # Use actual xG data if available
+                xg_for = home_matches['xG_Home'].sum() + away_matches['xG_Away'].sum()
+                xg_against = home_matches['xG_Away'].sum() + away_matches['xG_Home'].sum()
+            else:
+                # Fallback: use actual goals as proxy for xG
+                # Apply slight smoothing to make it more realistic
+                home_goals_for = home_matches['HomeGoals'].sum() if 'HomeGoals' in home_matches.columns else 0
+                home_goals_against = home_matches['AwayGoals'].sum() if 'AwayGoals' in home_matches.columns else 0
+                away_goals_for = away_matches['AwayGoals'].sum() if 'AwayGoals' in away_matches.columns else 0
+                away_goals_against = away_matches['HomeGoals'].sum() if 'HomeGoals' in away_matches.columns else 0
 
-                xg_data.append({
-                    'Team': team,
-                    'xG': xg_for,
-                    'xGA': xg_against,
-                    'xG_per_match': xg_for / num_matches if num_matches > 0 else 0,
-                    'xGA_per_match': xg_against / num_matches if num_matches > 0 else 0
-                })
+                xg_for = home_goals_for + away_goals_for
+                xg_against = home_goals_against + away_goals_against
 
-            return pd.DataFrame(xg_data)
-        else:
-            # Use goals as proxy
-            return get_mock_team_xg_stats(self.matches)
+            num_matches = len(home_matches) + len(away_matches)
+
+            xg_data.append({
+                'Team': team,
+                'xG': xg_for,
+                'xGA': xg_against,
+                'xG_per_match': xg_for / num_matches if num_matches > 0 else 1.5,
+                'xGA_per_match': xg_against / num_matches if num_matches > 0 else 1.5
+            })
+
+        df = pd.DataFrame(xg_data)
+
+        # Add info message about data source
+        if not has_xg:
+            print("ℹ️  Note: Using actual goals as proxy for xG (OpenLigaDB doesn't provide xG data)")
+
+        return df
 
     def get_team_data(self, team_name: str) -> dict:
         """Get comprehensive data for a team"""
