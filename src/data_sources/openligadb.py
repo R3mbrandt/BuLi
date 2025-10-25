@@ -56,14 +56,19 @@ class OpenLigaDBClient:
             response.raise_for_status()
             leagues = response.json()
 
-            # Find current Bundesliga season
+            # Find ALL Bundesliga seasons and get the most recent one
+            bundesliga_seasons = []
             for league in leagues:
                 if league.get('leagueShortcut') == self.league:
                     season = league.get('leagueSeason')
                     if season:
-                        return str(season)
+                        bundesliga_seasons.append(int(season))
 
-            # Default to current year
+            # Return the highest (most recent) season
+            if bundesliga_seasons:
+                return str(max(bundesliga_seasons))
+
+            # Default to current year if no seasons found
             return str(datetime.now().year)
 
         except Exception as e:
