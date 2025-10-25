@@ -279,19 +279,51 @@ class TransfermarktScraper:
         pass
 ```
 
-## ⚠️ Bekannte Einschränkungen
+## ⚠️ Bekannte Einschränkungen & Troubleshooting
 
-1. **Cloud-Umgebungen**: Einige Websites (FBref, ClubELO) blockieren Zugriffe aus Cloud-IDEs mit 403 Forbidden
-   - **Lösung**: Script lokal ausführen
-   - **Alternative**: Mock-Daten nutzen (`--live` weglassen)
+### 1. Live-Daten funktionieren nicht (`--live` schlägt fehl)
 
-2. **xG-Daten**: Nicht alle APIs bieten xG-Werte
-   - **Lösung**: FBref-Scraping implementiert
-   - **Fallback**: Tore als Proxy für xG
+**Symptom**:
+```bash
+python predict.py --live
+# ⚠️ Live data fetch failed: 403 Client Error: Forbidden
+# 📊 Falling back to mock data for demonstration...
+```
 
-3. **Verletzungsdaten**: Keine kostenlose API verfügbar
-   - **Lösung**: Transfermarkt-Scraping (noch zu implementieren)
-   - **Aktuell**: Mock-Werte verwendet
+**Mögliche Ursachen**:
+- Netzwerkbeschränkungen (Firewall, Proxy)
+- Cloud-Umgebungen blockieren externe APIs
+- IP-Adresse ist temporär rate-limited
+- OpenLigaDB API ist nicht erreichbar
+
+**Lösungen**:
+1. ✅ **Automatischer Fallback**: Das Script nutzt automatisch Mock-Daten
+2. ✅ **Mock-Daten nutzen**: Einfach `--live` weglassen
+   ```bash
+   python predict.py --team1 "Bayern" --team2 "Dortmund"
+   ```
+3. ✅ **Lokale Umgebung**: Script auf Ihrem eigenen Rechner ausführen (nicht in Cloud-IDE)
+4. ✅ **Netzwerk prüfen**: Firewall/Proxy-Einstellungen überprüfen
+
+**Hinweis**: Mock-Daten sind realistisch generiert und liefern funktionierende Prognosen für Tests!
+
+### 2. Cloud-Umgebungen
+
+Einige Websites (FBref, ClubELO) blockieren Zugriffe aus Cloud-IDEs mit 403 Forbidden
+- **Lösung**: Script lokal ausführen
+- **Alternative**: Mock-Daten nutzen
+
+### 3. xG-Daten
+
+Nicht alle APIs bieten xG-Werte
+- **Lösung**: FBref-Scraping implementiert
+- **Fallback**: Tore als Proxy für xG
+
+### 4. Verletzungsdaten
+
+Keine kostenlose API verfügbar
+- **Lösung**: Transfermarkt-Scraping (noch zu implementieren)
+- **Aktuell**: Mock-Werte verwendet
 
 ## 🤝 Beitragen
 

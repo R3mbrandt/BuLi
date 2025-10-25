@@ -45,13 +45,34 @@ class BundesligaPredictor:
         self.use_live_data = use_live_data
         self.engine = BundesligaPredictionEngine()
         self.elo_system = ELORatingSystem()
+        self.data_source = "mock"  # Track actual data source used
 
         # Load data
         if use_live_data:
-            print("📡 Fetching live data from OpenLigaDB...")
-            self.client = OpenLigaDBClient()
-            self.matches = self.client.get_all_matches()
-            self.table = self.client.get_table()
+            print("📡 Attempting to fetch live data from OpenLigaDB...")
+            try:
+                self.client = OpenLigaDBClient()
+                self.matches = self.client.get_all_matches()
+                self.table = self.client.get_table()
+
+                # Validate data was actually retrieved
+                if self.matches.empty or self.table.empty:
+                    raise ValueError("Received empty data from API")
+
+                print(f"✓ Successfully fetched live data!")
+                self.data_source = "live"
+            except Exception as e:
+                print(f"\n⚠️  Live data fetch failed: {e}")
+                print("📊 Falling back to mock data for demonstration...")
+                print("\nPossible reasons:")
+                print("  - Network restrictions or firewall")
+                print("  - API temporarily unavailable")
+                print("  - Your IP might be rate-limited")
+                print("\n💡 Tip: Mock data provides realistic predictions for testing!\n")
+
+                self.matches = generate_mock_matches(15)
+                self.table = generate_mock_table(self.matches)
+                self.use_live_data = False  # Update flag
         else:
             print("📊 Using mock data for demonstration...")
             self.matches = generate_mock_matches(15)
@@ -61,7 +82,7 @@ class BundesligaPredictor:
         self._initialize_elo_ratings()
 
         # Get xG stats
-        if use_live_data:
+        if self.use_live_data:
             # For live data, calculate from matches
             self.xg_stats = self._calculate_xg_from_matches()
         else:
@@ -69,6 +90,7 @@ class BundesligaPredictor:
 
         print(f"✓ Loaded {len(self.matches)} matches")
         print(f"✓ Loaded {len(self.table)} teams")
+        print(f"✓ Data source: {self.data_source.upper()}")
 
     def _initialize_elo_ratings(self):
         """Calculate ELO ratings from historical matches"""
@@ -256,15 +278,8 @@ Examples:
 
     args = parser.parse_args()
 
-    # Initialize predictor
-    try:
-        predictor = BundesligaPredictor(use_live_data=args.live)
-    except Exception as e:
-        print(f"Error initializing predictor: {e}")
-        if args.live:
-            print("\n⚠️  Live data fetching failed. This might be due to network restrictions.")
-            print("Try running without --live flag to use mock data for demonstration.")
-        sys.exit(1)
+    # Initialize predictor (now with automatic fallback to mock data)
+    predictor = BundesligaPredictor(use_live_data=args.live)
 
     # Execute commands
     if args.show_elo:
