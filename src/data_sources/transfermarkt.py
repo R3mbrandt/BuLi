@@ -27,42 +27,43 @@ class TransfermarktScraper:
 
     BASE_URL = "https://www.transfermarkt.de"
 
-    # Known Bundesliga team mappings (Transfermarkt URLs)
+    # Known Bundesliga team mappings (Transfermarkt URLs and IDs)
     TEAM_MAPPINGS = {
+        # Format: 'Team Name': ('url-slug', verein_id)
         # Full names as they appear in OpenLigaDB
-        'Bayern München': 'fc-bayern-munchen',
-        'FC Bayern München': 'fc-bayern-munchen',
-        'Borussia Dortmund': 'borussia-dortmund',
-        'RB Leipzig': 'rasenballsport-leipzig',
-        'Bayer Leverkusen': 'bayer-04-leverkusen',
-        'Bayer 04 Leverkusen': 'bayer-04-leverkusen',
-        'Union Berlin': '1-fc-union-berlin',
-        '1. FC Union Berlin': '1-fc-union-berlin',
-        'SC Freiburg': 'sc-freiburg',
-        'Sport-Club Freiburg': 'sc-freiburg',
-        'Eintracht Frankfurt': 'eintracht-frankfurt',
-        'VfL Wolfsburg': 'vfl-wolfsburg',
-        'Mainz 05': '1-fsv-mainz-05',
-        '1. FSV Mainz 05': '1-fsv-mainz-05',
-        'FSV Mainz 05': '1-fsv-mainz-05',
-        'Borussia Mönchengladbach': 'borussia-monchengladbach',
-        "Borussia M'gladbach": 'borussia-monchengladbach',
-        '1. FC Köln': '1-fc-koln',
-        'FC Köln': '1-fc-koln',
-        'TSG Hoffenheim': 'tsg-1899-hoffenheim',
-        'TSG 1899 Hoffenheim': 'tsg-1899-hoffenheim',
-        'VfB Stuttgart': 'vfb-stuttgart',
-        'Werder Bremen': 'sv-werder-bremen',
-        'SV Werder Bremen': 'sv-werder-bremen',
-        'VfL Bochum': 'vfl-bochum',
-        'VfL Bochum 1848': 'vfl-bochum',
-        'FC Augsburg': 'fc-augsburg',
-        'FC Heidenheim': '1-fc-heidenheim-1846',
-        '1. FC Heidenheim': '1-fc-heidenheim-1846',
-        '1. FC Heidenheim 1846': '1-fc-heidenheim-1846',
-        'SV Darmstadt 98': 'sv-darmstadt-98',
-        'Holstein Kiel': 'holstein-kiel',
-        'FC St. Pauli': 'fc-st-pauli'
+        'Bayern München': ('fc-bayern-munchen', 27),
+        'FC Bayern München': ('fc-bayern-munchen', 27),
+        'Borussia Dortmund': ('borussia-dortmund', 16),
+        'RB Leipzig': ('rasenballsport-leipzig', 23826),
+        'Bayer Leverkusen': ('bayer-04-leverkusen', 15),
+        'Bayer 04 Leverkusen': ('bayer-04-leverkusen', 15),
+        'Union Berlin': ('1-fc-union-berlin', 89),
+        '1. FC Union Berlin': ('1-fc-union-berlin', 89),
+        'SC Freiburg': ('sc-freiburg', 60),
+        'Sport-Club Freiburg': ('sc-freiburg', 60),
+        'Eintracht Frankfurt': ('eintracht-frankfurt', 24),
+        'VfL Wolfsburg': ('vfl-wolfsburg', 82),
+        'Mainz 05': ('1-fsv-mainz-05', 39),
+        '1. FSV Mainz 05': ('1-fsv-mainz-05', 39),
+        'FSV Mainz 05': ('1-fsv-mainz-05', 39),
+        'Borussia Mönchengladbach': ('borussia-monchengladbach', 18),
+        "Borussia M'gladbach": ('borussia-monchengladbach', 18),
+        '1. FC Köln': ('1-fc-koln', 3),
+        'FC Köln': ('1-fc-koln', 3),
+        'TSG Hoffenheim': ('tsg-1899-hoffenheim', 533),
+        'TSG 1899 Hoffenheim': ('tsg-1899-hoffenheim', 533),
+        'VfB Stuttgart': ('vfb-stuttgart', 79),
+        'Werder Bremen': ('sv-werder-bremen', 86),
+        'SV Werder Bremen': ('sv-werder-bremen', 86),
+        'VfL Bochum': ('vfl-bochum', 80),
+        'VfL Bochum 1848': ('vfl-bochum', 80),
+        'FC Augsburg': ('fc-augsburg', 167),
+        'FC Heidenheim': ('1-fc-heidenheim-1846', 2036),
+        '1. FC Heidenheim': ('1-fc-heidenheim-1846', 2036),
+        '1. FC Heidenheim 1846': ('1-fc-heidenheim-1846', 2036),
+        'SV Darmstadt 98': ('sv-darmstadt-98', 105),
+        'Holstein Kiel': ('holstein-kiel', 1128),
+        'FC St. Pauli': ('fc-st-pauli', 35)
     }
 
     def __init__(self):
@@ -81,24 +82,24 @@ class TransfermarktScraper:
             'Cache-Control': 'max-age=0'
         })
 
-    def _get_team_url_slug(self, team_name: str) -> Optional[str]:
+    def _get_team_info(self, team_name: str) -> Optional[tuple]:
         """
-        Get Transfermarkt URL slug for a team
+        Get Transfermarkt URL slug and verein ID for a team
 
         Args:
             team_name: Team name (can be partial)
 
         Returns:
-            URL slug or None if not found
+            Tuple of (url_slug, verein_id) or None if not found
         """
         # Try exact match first
         if team_name in self.TEAM_MAPPINGS:
             return self.TEAM_MAPPINGS[team_name]
 
         # Try partial match
-        for full_name, slug in self.TEAM_MAPPINGS.items():
+        for full_name, info in self.TEAM_MAPPINGS.items():
             if team_name.lower() in full_name.lower():
-                return slug
+                return info
 
         return None
 
@@ -158,13 +159,15 @@ class TransfermarktScraper:
         Returns:
             Dictionary with squad value info or None
         """
-        team_slug = self._get_team_url_slug(team_name)
-        if not team_slug:
+        team_info = self._get_team_info(team_name)
+        if not team_info:
             print(f"⚠️  Team '{team_name}' not found in Transfermarkt mappings")
             return None
 
-        # Transfermarkt squad overview URL
-        url = f"{self.BASE_URL}/{team_slug}/kader/verein/27/saison_id/2024"
+        team_slug, verein_id = team_info
+
+        # Transfermarkt squad overview URL with correct verein ID
+        url = f"{self.BASE_URL}/{team_slug}/kader/verein/{verein_id}/saison_id/2024"
 
         try:
             print(f"Fetching squad value for {team_name}...")
