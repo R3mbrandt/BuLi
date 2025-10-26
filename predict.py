@@ -30,6 +30,7 @@ from data_sources.transfermarkt import (
     get_squad_value_with_fallback,
     get_injuries_with_fallback
 )
+from data_sources.fbref import FBrefScraper
 from models.elo_rating import ELORatingSystem
 from models.poisson_model import PoissonMatchPredictor
 from models.prediction_engine import BundesligaPredictionEngine
@@ -86,10 +87,15 @@ class BundesligaPredictor:
         # Calculate ELO ratings from matches
         self._initialize_elo_ratings()
 
-        # Get xG stats
+        # Get xG stats - prioritize FBref for live data
         if self.use_live_data:
-            # For live data, calculate from matches
-            self.xg_stats = self._calculate_xg_from_matches()
+            # Try FBref first for actual xG data
+            self.xg_stats = self._fetch_xg_from_fbref()
+
+            # Fallback to calculating from matches if FBref fails
+            if self.xg_stats is None or self.xg_stats.empty:
+                print("📊 Falling back to match-based xG calculation...")
+                self.xg_stats = self._calculate_xg_from_matches()
         else:
             self.xg_stats = get_mock_team_xg_stats(self.matches)
 
@@ -116,12 +122,71 @@ class BundesligaPredictor:
             initial_ratings=self.elo_system.ratings.copy()
         )
 
+    def _fetch_xg_from_fbref(self):
+        """Try to fetch xG data from FBref as primary source"""
+        try:
+            print("\n📊 Attempting to fetch xG data from FBref...")
+            fbref = FBrefScraper()
+
+            # Get league table with xG data
+            table = fbref.get_league_table()
+
+            if table.empty:
+                print("⚠️  FBref: No data returned")
+                return None
+
+            # Check if xG columns exist
+            xg_cols = [col for col in table.columns if 'xG' in col]
+            if not xg_cols:
+                print("⚠️  FBref: No xG columns found in table")
+                return None
+
+            # Process the data
+            xg_data = []
+            for _, row in table.iterrows():
+                team_name = row.get('Team', '')
+                if not team_name:
+                    continue
+
+                # Get xG values
+                xg_total = row.get('xG', 0)
+                xga_total = row.get('xGA', 0)
+                matches_played = row.get('Played', row.get('MP', 1))
+
+                # Calculate per-match averages
+                if matches_played > 0:
+                    xg_per_match = xg_total / matches_played
+                    xga_per_match = xga_total / matches_played
+                else:
+                    xg_per_match = 1.5
+                    xga_per_match = 1.5
+
+                xg_data.append({
+                    'Team': team_name,
+                    'xG': xg_total,
+                    'xGA': xga_total,
+                    'xG_per_match': xg_per_match,
+                    'xGA_per_match': xga_per_match
+                })
+
+            if xg_data:
+                df = pd.DataFrame(xg_data)
+                print(f"✓ FBref: Successfully fetched xG data for {len(df)} teams")
+                return df
+            else:
+                print("⚠️  FBref: No xG data extracted")
+                return None
+
+        except Exception as e:
+            print(f"⚠️  FBref fetch failed: {e}")
+            return None
+
     def _calculate_xg_from_matches(self):
-        """Calculate xG stats from match data (for live data without xG)"""
+        """Calculate xG stats from match data (fallback when FBref unavailable)"""
         teams = self.table['Team'].unique()
         xg_data = []
 
-        # Check if xG columns exist
+        # Check if xG columns exist in match data
         has_xg = 'xG_Home' in self.matches.columns and 'xG_Away' in self.matches.columns
 
         for team in teams:
@@ -175,12 +240,17 @@ class BundesligaPredictor:
         # Get ELO
         elo = self.elo_system.get_rating(team_full_name)
 
-        # Get xG stats
+        # Get xG stats with fuzzy matching (FBref might use different team names)
         xg_row = self.xg_stats[self.xg_stats['Team'] == team_full_name]
+        if xg_row.empty:
+            # Try fuzzy match (e.g., "Bayern Munich" vs "Bayern München")
+            xg_row = self.xg_stats[self.xg_stats['Team'].str.contains(team_name, case=False, na=False)]
+
         if not xg_row.empty:
             xg_for = xg_row.iloc[0]['xG_per_match']
             xg_against = xg_row.iloc[0]['xGA_per_match']
         else:
+            # Fallback values
             xg_for = 1.5
             xg_against = 1.5
 
