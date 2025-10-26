@@ -287,10 +287,34 @@ class BundesligaPredictionEngine:
             combined_away /= total
 
         # Convert to expected goals (lambda for Poisson)
-        # Base expectation is 1.5 goals, scaled by strength
-        base_goals = 1.5
-        home_lambda = base_goals * (combined_home / combined_away) * 1.3  # Home advantage
-        away_lambda = base_goals * (combined_away / combined_home)
+        # Based on Bundesliga 2024/25 statistics:
+        # - Average: 3.1 goals per game (1.7 home, 1.4 away)
+        # - Most common results: 1:1 (11.6%), 2:1, 1:0 (7.2%)
+
+        # Use more realistic base values
+        bundesliga_avg_home = 1.7
+        bundesliga_avg_away = 1.4
+
+        # Calculate strength multiplier with bounded scaling
+        # Prevents extreme lambda values that lead to unrealistic high-scoring predictions
+
+        # Strength difference (bounded between -0.5 and 0.5)
+        strength_diff = combined_home - combined_away
+        strength_diff = max(-0.5, min(0.5, strength_diff))  # Cap at ±0.5
+
+        # Convert to multiplier using a softer curve
+        # This produces multipliers between ~0.7x and ~1.4x
+        home_multiplier = 1.0 + (strength_diff * 0.8)
+        away_multiplier = 1.0 - (strength_diff * 0.8)
+
+        # Apply multipliers to Bundesliga averages
+        home_lambda = bundesliga_avg_home * home_multiplier
+        away_lambda = bundesliga_avg_away * away_multiplier
+
+        # Apply safety caps to prevent unrealistic scores
+        # Maximum: 3.0 goals for home, 2.5 for away
+        home_lambda = min(3.0, max(0.5, home_lambda))
+        away_lambda = min(2.5, max(0.5, away_lambda))
 
         # Use Poisson model for final prediction
         poisson_pred = self.poisson_predictor.predict_match_simple(home_lambda, away_lambda)
