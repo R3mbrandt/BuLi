@@ -5,9 +5,12 @@ Scrapes Bundesliga data from FBref.com including:
 - Match results
 - xG (Expected Goals) data
 - Team statistics
+
+Uses CloudScraper to bypass Cloudflare protection
 """
 
-import requests
+import cloudscraper
+import requests  # For exception handling
 from bs4 import BeautifulSoup
 import pandas as pd
 from datetime import datetime
@@ -29,14 +32,19 @@ class FBrefScraper:
     BUNDESLIGA_ID = "20"
 
     def __init__(self):
-        self.session = requests.Session()
+        # Use cloudscraper to bypass Cloudflare protection
+        # Note: This works on local machines but may be blocked in cloud/datacenter environments
+        # FBref blocks datacenter IPs but allows residential IPs
+        self.session = cloudscraper.create_scraper(
+            browser={
+                'browser': 'chrome',
+                'platform': 'windows',
+                'desktop': True
+            }
+        )
+        # CloudScraper handles headers automatically, but we can add custom ones
         self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
             'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1'
         })
 
     def _get_page(self, url: str, delay: float = 3.0) -> Optional[BeautifulSoup]:
