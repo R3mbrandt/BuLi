@@ -85,10 +85,12 @@ class TransfermarktScraper:
             'Cache-Control': 'max-age=0'
         })
         self._bundesliga_injuries_cache = None  # Cache for all Bundesliga injuries
+        self._bundesliga_team_mappings_cache = None  # Dynamic team mappings from scraped data
 
     def _get_team_info(self, team_name: str) -> Optional[tuple]:
         """
         Get Transfermarkt URL slug and verein ID for a team
+        Uses dynamically scraped data if available, falls back to static mappings
 
         Args:
             team_name: Team name (can be partial)
@@ -96,11 +98,21 @@ class TransfermarktScraper:
         Returns:
             Tuple of (url_slug, verein_id) or None if not found
         """
-        # Try exact match first
+        # First try: Use dynamic mappings from scraped Bundesliga page (most up-to-date)
+        if self._bundesliga_team_mappings_cache:
+            # Try exact match
+            if team_name in self._bundesliga_team_mappings_cache:
+                return self._bundesliga_team_mappings_cache[team_name]
+
+            # Try partial match
+            for full_name, info in self._bundesliga_team_mappings_cache.items():
+                if team_name.lower() in full_name.lower():
+                    return info
+
+        # Fallback: Use static mappings (for when scraping fails or hasn't happened yet)
         if team_name in self.TEAM_MAPPINGS:
             return self.TEAM_MAPPINGS[team_name]
 
-        # Try partial match
         for full_name, info in self.TEAM_MAPPINGS.items():
             if team_name.lower() in full_name.lower():
                 return info
@@ -300,8 +312,9 @@ class TransfermarktScraper:
                 print(f"⚠️  No injury table found on Bundesliga page")
                 return {}
 
-            # Parse all injury rows
+            # Parse all injury rows and build dynamic team mappings
             injuries_by_team = {}
+            team_mappings = {}  # Build dynamic mappings: {team_name: (url_slug, verein_id)}
             rows = injury_table.find_all('tr', class_=['odd', 'even'])
 
             if debug:
@@ -317,44 +330,52 @@ class TransfermarktScraper:
                     player_link = player_cell.find('a')
                     player_name = player_link.text.strip() if player_link else 'Unknown'
 
-                    # Get team name - look specifically for club/verein images and links
+                    # Get team name, URL slug, and verein ID - look for club links
                     team_name = None
+                    team_url_slug = None
+                    team_verein_id = None
 
-                    # Strategy 1: Look for club logo images (have specific src pattern)
-                    # Transfermarkt club logos have src like "/tiny/vereinslogo/..."
-                    imgs = row.find_all('img')
-                    for img in imgs:
-                        src = img.get('src', '')
-                        # Club logos contain 'vereinslogo' or 'wappen' in path
-                        if 'vereinslogo' in src or 'wappen' in src or '/verein/' in src:
-                            team_name = img.get('alt', '').strip()
-                            if team_name and team_name != player_name:
-                                if debug and row_idx < 5:
-                                    print(f"  Row {row_idx}: Player '{player_name}' -> Team '{team_name}' (via logo img)")
-                                break
+                    # Strategy 1: Look for cells with class 'zentriert' that have club links
+                    # This gives us the most complete info (name + URL + ID)
+                    centered_cells = row.find_all('td', class_='zentriert')
+                    for cell in centered_cells:
+                        links = cell.find_all('a')
+                        for link in links:
+                            href = link.get('href', '')
+                            # Club links have pattern like "/vereinsname/startseite/verein/ID"
+                            if '/startseite/verein/' in href or (href.startswith('/') and href.count('/') >= 3 and 'verein' in href):
+                                # Extract team name
+                                team_name = link.get('title', '').strip()
+                                if not team_name:
+                                    img = link.find('img')
+                                    if img:
+                                        team_name = img.get('alt', '').strip()
 
-                    # Strategy 2: Look for cells with class 'zentriert' that have club links
+                                # Extract URL slug and verein ID from href
+                                # Format: /fc-bayern-munchen/startseite/verein/27
+                                match = re.match(r'/([^/]+)/startseite/verein/(\d+)', href)
+                                if match:
+                                    team_url_slug = match.group(1)
+                                    team_verein_id = int(match.group(2))
+
+                                if team_name and team_name != player_name:
+                                    if debug and row_idx < 5:
+                                        print(f"  Row {row_idx}: Player '{player_name}' -> Team '{team_name}' (ID: {team_verein_id})")
+                                    break
+                        if team_name and team_name != player_name:
+                            break
+
+                    # Strategy 2: Fallback to logo images if link strategy failed
                     if not team_name:
-                        centered_cells = row.find_all('td', class_='zentriert')
-                        for cell in centered_cells:
-                            # Look for links to club pages
-                            links = cell.find_all('a')
-                            for link in links:
-                                href = link.get('href', '')
-                                # Club links have pattern like "/vereinsname/startseite/verein/ID"
-                                if '/startseite/verein/' in href or (href.startswith('/') and href.count('/') >= 3 and 'verein' in href):
-                                    team_name = link.get('title', '').strip()
-                                    if not team_name:
-                                        # Try getting from nested img alt
-                                        img = link.find('img')
-                                        if img:
-                                            team_name = img.get('alt', '').strip()
-                                    if team_name and team_name != player_name:
-                                        if debug and row_idx < 5:
-                                            print(f"  Row {row_idx}: Player '{player_name}' -> Team '{team_name}' (via link)")
-                                        break
-                            if team_name and team_name != player_name:
-                                break
+                        imgs = row.find_all('img')
+                        for img in imgs:
+                            src = img.get('src', '')
+                            if 'vereinslogo' in src or 'wappen' in src or '/verein/' in src:
+                                team_name = img.get('alt', '').strip()
+                                if team_name and team_name != player_name:
+                                    if debug and row_idx < 5:
+                                        print(f"  Row {row_idx}: Player '{player_name}' -> Team '{team_name}' (via logo, no ID)")
+                                    break
 
                     # Strategy 3: Look through all table cells systematically
                     if not team_name:
@@ -386,6 +407,11 @@ class TransfermarktScraper:
                         if debug and row_idx < 5:
                             print(f"  Row {row_idx}: No team found for player '{player_name}'")
                         continue
+
+                    # Store team mapping if we have complete info
+                    if team_name and team_url_slug and team_verein_id:
+                        if team_name not in team_mappings:
+                            team_mappings[team_name] = (team_url_slug, team_verein_id)
 
                     # Get injury details
                     all_cells = row.find_all('td')
@@ -430,13 +456,19 @@ class TransfermarktScraper:
 
             # Cache the results
             self._bundesliga_injuries_cache = injuries_by_team
+            self._bundesliga_team_mappings_cache = team_mappings  # Cache dynamic team mappings
 
             if debug:
                 print(f"\n📊 Teams found with injuries:")
                 for team, players in sorted(injuries_by_team.items()):
                     print(f"  {team}: {len(players)} injured")
 
+                print(f"\n🔗 Dynamic team mappings extracted:")
+                for team, (slug, verein_id) in sorted(team_mappings.items()):
+                    print(f"  {team}: {slug} (ID: {verein_id})")
+
             print(f"✓ Found injuries for {len(injuries_by_team)} teams")
+            print(f"✓ Extracted {len(team_mappings)} dynamic team mappings")
 
             return injuries_by_team
 
