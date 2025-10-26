@@ -25,7 +25,11 @@ from data_sources.mock_data import (
     BUNDESLIGA_TEAMS
 )
 from data_sources.openligadb import OpenLigaDBClient
-from data_sources.transfermarkt import TransfermarktScraper, get_squad_value_with_fallback
+from data_sources.transfermarkt import (
+    TransfermarktScraper,
+    get_squad_value_with_fallback,
+    get_injuries_with_fallback
+)
 from models.elo_rating import ELORatingSystem
 from models.poisson_model import PoissonMatchPredictor
 from models.prediction_engine import BundesligaPredictionEngine
@@ -187,11 +191,9 @@ class BundesligaPredictor:
         tm_data = get_squad_value_with_fallback(team_full_name, fallback_data)
         squad_value = tm_data['squad_value']
 
-        # Get injuries (still using mock/default for now)
-        if mock_team_data:
-            injuries = mock_team_data['injuries']
-        else:
-            injuries = 2  # Default
+        # Get injuries from Transfermarkt (with fallback to mock data)
+        injury_data = get_injuries_with_fallback(team_full_name, fallback_data)
+        injuries = injury_data['injured_count']
 
         return {
             'full_name': team_full_name,

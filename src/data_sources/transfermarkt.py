@@ -263,6 +263,140 @@ class TransfermarktScraper:
 
         return df
 
+    def get_injuries(self, team_name: str) -> Optional[Dict]:
+        """
+        Get injury information for a team
+
+        Args:
+            team_name: Team name
+
+        Returns:
+            Dictionary with injury info or None
+        """
+        team_info = self._get_team_info(team_name)
+        if not team_info:
+            print(f"⚠️  Team '{team_name}' not found in Transfermarkt mappings")
+            return None
+
+        team_slug, verein_id = team_info
+
+        # Transfermarkt injury page URL
+        url = f"{self.BASE_URL}/{team_slug}/verletztespieler/verein/{verein_id}"
+
+        try:
+            print(f"Fetching injuries for {team_name}...")
+            time.sleep(2)  # Be respectful to the server
+
+            response = self.session.get(url, timeout=15)
+            response.raise_for_status()
+
+            soup = BeautifulSoup(response.content, 'lxml')
+
+            # Find all injured players
+            # Transfermarkt shows injuries in a specific table
+            injury_table = soup.find('table', class_='items')
+
+            if not injury_table:
+                print(f"No injury table found for {team_name}")
+                return {
+                    'team': team_name,
+                    'injured_count': 0,
+                    'injured_players': [],
+                    'source': 'transfermarkt',
+                    'url': url
+                }
+
+            # Parse injury rows
+            injured_players = []
+            rows = injury_table.find_all('tr', class_=['odd', 'even'])
+
+            for row in rows:
+                try:
+                    # Get player name
+                    player_cell = row.find('td', class_='hauptlink')
+                    if not player_cell:
+                        continue
+
+                    player_link = player_cell.find('a')
+                    player_name = player_link.text.strip() if player_link else 'Unknown'
+
+                    # Get injury type
+                    injury_cell = row.find_all('td')
+                    injury_type = 'Unknown'
+                    expected_return = 'Unknown'
+
+                    # Try to extract injury details
+                    if len(injury_cell) >= 4:
+                        # Injury type is usually in a specific column
+                        for cell in injury_cell:
+                            cell_text = cell.text.strip()
+                            if cell_text and not cell_text.isdigit() and cell_text != player_name:
+                                if not injury_type or injury_type == 'Unknown':
+                                    injury_type = cell_text
+                                elif not expected_return or expected_return == 'Unknown':
+                                    expected_return = cell_text
+
+                    injured_players.append({
+                        'name': player_name,
+                        'injury': injury_type,
+                        'expected_return': expected_return
+                    })
+
+                except Exception as e:
+                    # Skip this row if parsing fails
+                    continue
+
+            print(f"✓ Found {len(injured_players)} injured player(s)")
+
+            return {
+                'team': team_name,
+                'injured_count': len(injured_players),
+                'injured_players': injured_players,
+                'source': 'transfermarkt',
+                'url': url
+            }
+
+        except requests.exceptions.RequestException as e:
+            print(f"✗ Error fetching injuries for {team_name}: {e}")
+            return None
+        except Exception as e:
+            print(f"✗ Error parsing injuries for {team_name}: {e}")
+            return None
+
+    def get_all_bundesliga_injuries(self) -> pd.DataFrame:
+        """
+        Get injury data for all Bundesliga teams
+
+        Returns:
+            DataFrame with injury counts
+        """
+        results = []
+
+        print("\n" + "=" * 70)
+        print("Fetching Bundesliga Injuries from Transfermarkt")
+        print("=" * 70)
+
+        for team_name in self.TEAM_MAPPINGS.keys():
+            # Skip duplicates (we have multiple names for same team)
+            if any(r['team'] == team_name for r in results):
+                continue
+
+            data = self.get_injuries(team_name)
+            if data:
+                results.append({
+                    'team': data['team'],
+                    'injured_count': data['injured_count'],
+                    'players': ', '.join([p['name'] for p in data['injured_players'][:3]])  # First 3
+                })
+            time.sleep(2)  # Rate limiting
+
+        df = pd.DataFrame(results)
+        if not df.empty:
+            df = df.sort_values('injured_count', ascending=False)
+            df.reset_index(drop=True, inplace=True)
+
+        return df
+
 
 def get_squad_value_with_fallback(team_name: str, fallback_data: Optional[Dict] = None) -> Dict:
     """
@@ -303,17 +437,56 @@ def get_squad_value_with_fallback(team_name: str, fallback_data: Optional[Dict] 
     }
 
 
+def get_injuries_with_fallback(team_name: str, fallback_data: Optional[Dict] = None) -> Dict:
+    """
+    Get injury data with automatic fallback to mock data
+
+    Args:
+        team_name: Team name
+        fallback_data: Optional dict with fallback values
+
+    Returns:
+        Dictionary with injury data
+    """
+    scraper = TransfermarktScraper()
+    data = scraper.get_injuries(team_name)
+
+    if data:
+        return data
+
+    # Fallback to mock data
+    if fallback_data and team_name in fallback_data:
+        print(f"ℹ️  Using fallback injury data for {team_name}")
+        return {
+            'team': team_name,
+            'injured_count': fallback_data[team_name].get('injuries', 2),
+            'injured_players': [],
+            'source': 'mock',
+            'url': None
+        }
+
+    # Ultimate fallback: default value
+    print(f"⚠️  Using default injury count for {team_name}")
+    return {
+        'team': team_name,
+        'injured_count': 2,  # Default
+        'injured_players': [],
+        'source': 'default',
+        'url': None
+    }
+
+
 def main():
     """Test Transfermarkt scraper"""
 
     print("=" * 70)
-    print("Transfermarkt Scraper Test - Squad Values")
+    print("Transfermarkt Scraper Test - Squad Values & Injuries")
     print("=" * 70)
 
     scraper = TransfermarktScraper()
 
     # Test 1: Get single team value
-    print("\n1. Testing single team (Bayern München):")
+    print("\n1. Testing squad value (Bayern München):")
     print("-" * 70)
     bayern_data = scraper.get_squad_value("Bayern München")
 
@@ -326,24 +499,36 @@ def main():
     else:
         print("Failed to fetch data")
 
-    # Test 2: Get top 5 teams
-    print("\n\n2. Testing multiple teams (Top 5):")
+    # Test 2: Get injuries
+    print("\n\n2. Testing injuries (Bayern München):")
+    print("-" * 70)
+    bayern_injuries = scraper.get_injuries("Bayern München")
+
+    if bayern_injuries:
+        print("\nResult:")
+        print(f"  Team: {bayern_injuries['team']}")
+        print(f"  Injured Count: {bayern_injuries['injured_count']}")
+        if bayern_injuries['injured_players']:
+            print(f"  Injured Players:")
+            for player in bayern_injuries['injured_players'][:5]:  # Show first 5
+                print(f"    - {player['name']}: {player['injury']}")
+    else:
+        print("Failed to fetch injury data")
+
+    # Test 3: Test multiple teams
+    print("\n\n3. Testing multiple teams (Squad Values):")
     print("-" * 70)
 
-    top_teams = ['Bayern München', 'Borussia Dortmund', 'RB Leipzig',
-                 'Bayer Leverkusen', 'Eintracht Frankfurt']
+    test_teams = ['Bayern München', 'VfB Stuttgart', '1. FSV Mainz 05']
 
-    squad_values = []
-    for team in top_teams:
-        data = scraper.get_squad_value(team)
-        if data:
-            squad_values.append(data)
+    for team in test_teams:
+        value_data = scraper.get_squad_value(team)
+        injury_data = scraper.get_injuries(team)
 
-    if squad_values:
-        df = pd.DataFrame(squad_values)
-        df = df.sort_values('squad_value', ascending=False)
-        print("\n")
-        print(df[['team', 'squad_value_millions']].to_string(index=False))
+        if value_data and injury_data:
+            print(f"\n{team}:")
+            print(f"  Value: €{value_data['squad_value_millions']:.1f}M")
+            print(f"  Injuries: {injury_data['injured_count']}")
 
     print("\n" + "=" * 70)
     print("Transfermarkt Scraper Test Completed!")
