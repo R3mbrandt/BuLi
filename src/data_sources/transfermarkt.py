@@ -81,6 +81,7 @@ class TransfermarktScraper:
             'Sec-Fetch-Site': 'none',
             'Cache-Control': 'max-age=0'
         })
+        self._bundesliga_injuries_cache = None  # Cache for all Bundesliga injuries
 
     def _get_team_info(self, team_name: str) -> Optional[tuple]:
         """
@@ -263,6 +264,116 @@ class TransfermarktScraper:
 
         return df
 
+    def _fetch_all_bundesliga_injuries(self) -> Dict[str, List[Dict]]:
+        """
+        Fetch all injuries from the Bundesliga competition page
+
+        Returns:
+            Dictionary mapping team names to lists of injured players
+        """
+        # Use cache if available
+        if self._bundesliga_injuries_cache is not None:
+            return self._bundesliga_injuries_cache
+
+        # Bundesliga injury page URL (competition-wide)
+        url = f"{self.BASE_URL}/bundesliga/verletztespieler/wettbewerb/L1/plus/1"
+
+        try:
+            print(f"Fetching Bundesliga injuries from competition page...")
+            time.sleep(2)  # Be respectful to the server
+
+            response = self.session.get(url, timeout=15)
+            response.raise_for_status()
+
+            soup = BeautifulSoup(response.content, 'lxml')
+
+            # Find injury table
+            injury_table = soup.find('table', class_='items')
+
+            if not injury_table:
+                print(f"⚠️  No injury table found on Bundesliga page")
+                return {}
+
+            # Parse all injury rows
+            injuries_by_team = {}
+            rows = injury_table.find_all('tr', class_=['odd', 'even'])
+
+            for row in rows:
+                try:
+                    # Get player name
+                    player_cell = row.find('td', class_='hauptlink')
+                    if not player_cell:
+                        continue
+
+                    player_link = player_cell.find('a')
+                    player_name = player_link.text.strip() if player_link else 'Unknown'
+
+                    # Get team name (club logo/link)
+                    team_cells = row.find_all('td', class_='zentriert')
+                    team_name = None
+
+                    for cell in team_cells:
+                        img = cell.find('img')
+                        if img and 'alt' in img.attrs:
+                            team_name = img['alt'].strip()
+                            break
+
+                        # Alternative: find club link
+                        club_link = cell.find('a')
+                        if club_link and '/verein/' in club_link.get('href', ''):
+                            team_name = club_link.get('title', '').strip()
+                            if team_name:
+                                break
+
+                    if not team_name:
+                        continue
+
+                    # Get injury details
+                    all_cells = row.find_all('td')
+                    injury_type = 'Unknown'
+                    expected_return = 'Unknown'
+
+                    # Extract injury type and expected return (varies by page structure)
+                    for idx, cell in enumerate(all_cells):
+                        cell_text = cell.text.strip()
+
+                        # Skip empty cells, player name, team name
+                        if not cell_text or cell_text == player_name or cell_text == team_name:
+                            continue
+
+                        # Look for injury keywords
+                        if any(keyword in cell_text.lower() for keyword in ['injury', 'verletzung', 'muscle', 'knee', 'ankle', 'back']):
+                            injury_type = cell_text
+                        elif any(keyword in cell_text.lower() for keyword in ['return', 'rückkehr', 'expected', 'voraussichtlich']):
+                            expected_return = cell_text
+
+                    # Add to team's injury list
+                    if team_name not in injuries_by_team:
+                        injuries_by_team[team_name] = []
+
+                    injuries_by_team[team_name].append({
+                        'name': player_name,
+                        'injury': injury_type,
+                        'expected_return': expected_return
+                    })
+
+                except Exception as e:
+                    # Skip rows that fail to parse
+                    continue
+
+            # Cache the results
+            self._bundesliga_injuries_cache = injuries_by_team
+            print(f"✓ Found injuries for {len(injuries_by_team)} teams")
+
+            return injuries_by_team
+
+        except requests.exceptions.RequestException as e:
+            print(f"✗ Error fetching Bundesliga injuries: {e}")
+            return {}
+        except Exception as e:
+            print(f"✗ Error parsing Bundesliga injuries: {e}")
+            return {}
+
     def get_injuries(self, team_name: str) -> Optional[Dict]:
         """
         Get injury information for a team
@@ -280,88 +391,37 @@ class TransfermarktScraper:
 
         team_slug, verein_id = team_info
 
-        # Transfermarkt injury page URL
-        url = f"{self.BASE_URL}/{team_slug}/verletztespieler/verein/{verein_id}"
+        print(f"Fetching injuries for {team_name}...")
 
-        try:
-            print(f"Fetching injuries for {team_name}...")
-            time.sleep(2)  # Be respectful to the server
+        # Get all Bundesliga injuries (cached after first call)
+        all_injuries = self._fetch_all_bundesliga_injuries()
 
-            response = self.session.get(url, timeout=15)
-            response.raise_for_status()
-
-            soup = BeautifulSoup(response.content, 'lxml')
-
-            # Find all injured players
-            # Transfermarkt shows injuries in a specific table
-            injury_table = soup.find('table', class_='items')
-
-            if not injury_table:
-                print(f"No injury table found for {team_name}")
-                return {
-                    'team': team_name,
-                    'injured_count': 0,
-                    'injured_players': [],
-                    'source': 'transfermarkt',
-                    'url': url
-                }
-
-            # Parse injury rows
-            injured_players = []
-            rows = injury_table.find_all('tr', class_=['odd', 'even'])
-
-            for row in rows:
-                try:
-                    # Get player name
-                    player_cell = row.find('td', class_='hauptlink')
-                    if not player_cell:
-                        continue
-
-                    player_link = player_cell.find('a')
-                    player_name = player_link.text.strip() if player_link else 'Unknown'
-
-                    # Get injury type
-                    injury_cell = row.find_all('td')
-                    injury_type = 'Unknown'
-                    expected_return = 'Unknown'
-
-                    # Try to extract injury details
-                    if len(injury_cell) >= 4:
-                        # Injury type is usually in a specific column
-                        for cell in injury_cell:
-                            cell_text = cell.text.strip()
-                            if cell_text and not cell_text.isdigit() and cell_text != player_name:
-                                if not injury_type or injury_type == 'Unknown':
-                                    injury_type = cell_text
-                                elif not expected_return or expected_return == 'Unknown':
-                                    expected_return = cell_text
-
-                    injured_players.append({
-                        'name': player_name,
-                        'injury': injury_type,
-                        'expected_return': expected_return
-                    })
-
-                except Exception as e:
-                    # Skip this row if parsing fails
-                    continue
-
-            print(f"✓ Found {len(injured_players)} injured player(s)")
-
-            return {
-                'team': team_name,
-                'injured_count': len(injured_players),
-                'injured_players': injured_players,
-                'source': 'transfermarkt',
-                'url': url
-            }
-
-        except requests.exceptions.RequestException as e:
-            print(f"✗ Error fetching injuries for {team_name}: {e}")
+        if not all_injuries:
             return None
-        except Exception as e:
-            print(f"✗ Error parsing injuries for {team_name}: {e}")
-            return None
+
+        # Find this team's injuries by matching team name
+        injured_players = []
+
+        # Try exact match first
+        if team_name in all_injuries:
+            injured_players = all_injuries[team_name]
+        else:
+            # Try partial match (Transfermarkt might use slightly different names)
+            for tm_team_name, players in all_injuries.items():
+                if (team_name.lower() in tm_team_name.lower() or
+                    tm_team_name.lower() in team_name.lower()):
+                    injured_players = players
+                    break
+
+        print(f"✓ Found {len(injured_players)} injured player(s)")
+
+        return {
+            'team': team_name,
+            'injured_count': len(injured_players),
+            'injured_players': injured_players,
+            'source': 'transfermarkt',
+            'url': f"{self.BASE_URL}/bundesliga/verletztespieler/wettbewerb/L1"
+        }
 
     def get_all_bundesliga_injuries(self) -> pd.DataFrame:
         """
