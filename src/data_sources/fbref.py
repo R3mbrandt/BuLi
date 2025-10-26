@@ -13,6 +13,7 @@ import cloudscraper
 import requests  # For exception handling
 from bs4 import BeautifulSoup
 import pandas as pd
+from io import StringIO
 from datetime import datetime
 from typing import Optional, Dict, List, Tuple
 import time
@@ -101,7 +102,7 @@ class FBrefScraper:
                 return pd.DataFrame()
 
             # Parse table using pandas
-            df = pd.read_html(str(table))[0]
+            df = pd.read_html(StringIO(str(table)))[0]
 
             # Clean up multi-level columns if present
             if isinstance(df.columns, pd.MultiIndex):
@@ -164,7 +165,7 @@ class FBrefScraper:
                 return pd.DataFrame()
 
             # Parse table
-            df = pd.read_html(str(table))[0]
+            df = pd.read_html(StringIO(str(table)))[0]
 
             # Clean up multi-level columns
             if isinstance(df.columns, pd.MultiIndex):
@@ -232,7 +233,7 @@ class FBrefScraper:
                 print("Could not find xG statistics table")
                 return pd.DataFrame()
 
-            df = pd.read_html(str(table))[0]
+            df = pd.read_html(StringIO(str(table)))[0]
 
             # Clean up multi-level columns
             if isinstance(df.columns, pd.MultiIndex):
@@ -281,7 +282,7 @@ class FBrefScraper:
                 table_name = caption.text if caption else table_id
 
                 try:
-                    df = pd.read_html(str(table))[0]
+                    df = pd.read_html(StringIO(str(table)))[0]
 
                     # Clean up multi-level columns
                     if isinstance(df.columns, pd.MultiIndex):
