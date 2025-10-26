@@ -314,44 +314,74 @@ class TransfermarktScraper:
                     player_link = player_cell.find('a')
                     player_name = player_link.text.strip() if player_link else 'Unknown'
 
-                    # Get team name - multiple strategies
+                    # Get team name - look specifically for club/verein images and links
                     team_name = None
 
-                    # Strategy 1: Look for img with alt text (team logo)
+                    # Strategy 1: Look for club logo images (have specific src pattern)
+                    # Transfermarkt club logos have src like "/tiny/vereinslogo/..."
                     imgs = row.find_all('img')
                     for img in imgs:
-                        if 'alt' in img.attrs and img['alt'].strip():
-                            # Check if this is likely a team name (not a flag, etc.)
-                            alt_text = img['alt'].strip()
-                            if len(alt_text) > 2 and not alt_text.lower() in ['de', 'en', 'br', 'fr', 'es']:
-                                team_name = alt_text
+                        src = img.get('src', '')
+                        # Club logos contain 'vereinslogo' or 'wappen' in path
+                        if 'vereinslogo' in src or 'wappen' in src or '/verein/' in src:
+                            team_name = img.get('alt', '').strip()
+                            if team_name and team_name != player_name:
                                 if debug and row_idx < 5:
-                                    print(f"  Row {row_idx}: Found team via img alt: {team_name}")
+                                    print(f"  Row {row_idx}: Player '{player_name}' -> Team '{team_name}' (via logo img)")
                                 break
 
-                    # Strategy 2: Look in all cells for team-related info
+                    # Strategy 2: Look for cells with class 'zentriert' that have club links
                     if not team_name:
-                        all_cells = row.find_all('td')
-                        for cell in all_cells:
-                            # Check for links to team pages
+                        centered_cells = row.find_all('td', class_='zentriert')
+                        for cell in centered_cells:
+                            # Look for links to club pages
                             links = cell.find_all('a')
                             for link in links:
                                 href = link.get('href', '')
-                                if '/verein/' in href and '/startseite/verein/' in href:
-                                    # This is likely a team link
+                                # Club links have pattern like "/vereinsname/startseite/verein/ID"
+                                if '/startseite/verein/' in href or (href.startswith('/') and href.count('/') >= 3 and 'verein' in href):
                                     team_name = link.get('title', '').strip()
                                     if not team_name:
-                                        team_name = link.text.strip()
-                                    if team_name:
+                                        # Try getting from nested img alt
+                                        img = link.find('img')
+                                        if img:
+                                            team_name = img.get('alt', '').strip()
+                                    if team_name and team_name != player_name:
                                         if debug and row_idx < 5:
-                                            print(f"  Row {row_idx}: Found team via link: {team_name}")
+                                            print(f"  Row {row_idx}: Player '{player_name}' -> Team '{team_name}' (via link)")
                                         break
+                            if team_name and team_name != player_name:
+                                break
+
+                    # Strategy 3: Look through all table cells systematically
+                    if not team_name:
+                        all_cells = row.find_all('td')
+                        for cell_idx, cell in enumerate(all_cells):
+                            # Skip the player cell (usually first)
+                            if cell == player_cell:
+                                continue
+
+                            # Look for images that are NOT player portraits
+                            cell_imgs = cell.find_all('img')
+                            for img in cell_imgs:
+                                alt = img.get('alt', '').strip()
+                                src = img.get('src', '')
+                                # Exclude player portraits, flags, and empty alts
+                                if (alt and
+                                    alt != player_name and
+                                    'flagge' not in src.lower() and
+                                    'portrait' not in src.lower() and
+                                    len(alt) > 3):
+                                    team_name = alt
+                                    if debug and row_idx < 5:
+                                        print(f"  Row {row_idx}: Player '{player_name}' -> Team '{team_name}' (via cell {cell_idx})")
+                                    break
                             if team_name:
                                 break
 
                     if not team_name:
                         if debug and row_idx < 5:
-                            print(f"  Row {row_idx}: No team found for player {player_name}")
+                            print(f"  Row {row_idx}: No team found for player '{player_name}'")
                         continue
 
                     # Get injury details
