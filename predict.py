@@ -41,14 +41,16 @@ import pandas as pd
 class BundesligaPredictor:
     """Main predictor class"""
 
-    def __init__(self, use_live_data: bool = False):
+    def __init__(self, use_live_data: bool = False, debug: bool = False):
         """
         Initialize predictor
 
         Args:
             use_live_data: If True, fetch live data from OpenLigaDB
+            debug: If True, show detailed debug information
         """
         self.use_live_data = use_live_data
+        self.debug = debug
         self.engine = BundesligaPredictionEngine()
         self.elo_system = ELORatingSystem()
         self.data_source = "mock"  # Track actual data source used
@@ -102,6 +104,19 @@ class BundesligaPredictor:
         print(f"✓ Loaded {len(self.matches)} matches")
         print(f"✓ Loaded {len(self.table)} teams")
         print(f"✓ Data source: {self.data_source.upper()}")
+
+        # Show xG data in debug mode
+        if self.debug and not self.xg_stats.empty:
+            print("\n" + "=" * 70)
+            print("DEBUG: xG STATISTICS")
+            print("=" * 70)
+            # Show all teams with their xG values
+            debug_df = self.xg_stats[['Team', 'xG_per_match', 'xGA_per_match']].copy()
+            debug_df['xG_per_match'] = debug_df['xG_per_match'].round(2)
+            debug_df['xGA_per_match'] = debug_df['xGA_per_match'].round(2)
+            debug_df = debug_df.sort_values('xG_per_match', ascending=False)
+            print(debug_df.to_string(index=False))
+            print("=" * 70)
 
     def _initialize_elo_ratings(self):
         """Calculate ELO ratings from historical matches"""
@@ -172,6 +187,11 @@ class BundesligaPredictor:
             if xg_data:
                 df = pd.DataFrame(xg_data)
                 print(f"✓ FBref: Successfully fetched xG data for {len(df)} teams")
+
+                # Show source in debug mode
+                if self.debug:
+                    print("  📊 xG data source: FBref.com (actual Expected Goals)")
+
                 return df
             else:
                 print("⚠️  FBref: No xG data extracted")
@@ -223,7 +243,10 @@ class BundesligaPredictor:
 
         # Add info message about data source
         if not has_xg:
-            print("ℹ️  Note: Using actual goals as proxy for xG (OpenLigaDB doesn't provide xG data)")
+            msg = "ℹ️  Note: Using actual goals as proxy for xG (OpenLigaDB doesn't provide xG data)"
+            print(msg)
+            if self.debug:
+                print("  📊 xG data source: Goals-based calculation (proxy)")
 
         return df
 
@@ -275,7 +298,7 @@ class BundesligaPredictor:
             'squad_value_source': tm_data.get('source', 'unknown')
         }
 
-    def predict_match(self, team1: str, team2: str):
+    def predict_match(self, team1: str, team2: str, debug: bool = False):
         """Predict a single match"""
         print(f"\n🔮 Predicting: {team1} vs {team2}")
         print("=" * 70)
@@ -283,6 +306,20 @@ class BundesligaPredictor:
         # Get team data
         home_data = self.get_team_data(team1)
         away_data = self.get_team_data(team2)
+
+        # Debug output for xG values
+        if debug or self.debug:
+            print("\n📊 DEBUG: Expected Goals (xG) Statistics")
+            print("-" * 70)
+            print(f"{home_data['full_name']}:")
+            print(f"  xG for (per match):     {home_data['xg_for']:.2f}")
+            print(f"  xG against (per match): {home_data['xg_against']:.2f}")
+            print(f"  xG difference:          {home_data['xg_for'] - home_data['xg_against']:+.2f}")
+            print(f"\n{away_data['full_name']}:")
+            print(f"  xG for (per match):     {away_data['xg_for']:.2f}")
+            print(f"  xG against (per match): {away_data['xg_against']:.2f}")
+            print(f"  xG difference:          {away_data['xg_for'] - away_data['xg_against']:+.2f}")
+            print("-" * 70)
 
         # Get H2H matches
         h2h = self.matches[
@@ -305,7 +342,7 @@ class BundesligaPredictor:
         report = self.engine.format_prediction_report(prediction)
         print(report)
 
-    def predict_matchday(self, matchday: int):
+    def predict_matchday(self, matchday: int, debug: bool = False):
         """Predict all matches of a matchday"""
         print(f"\n🔮 Predicting Matchday {matchday}")
         print("=" * 70)
@@ -317,7 +354,7 @@ class BundesligaPredictor:
             return
 
         for _, match in matchday_matches.iterrows():
-            self.predict_match(match['HomeTeam'], match['AwayTeam'])
+            self.predict_match(match['HomeTeam'], match['AwayTeam'], debug=debug)
             print("\n")
 
     def show_elo_rankings(self):
@@ -360,11 +397,12 @@ Examples:
     parser.add_argument('--live', action='store_true', help='Use live data from OpenLigaDB')
     parser.add_argument('--show-elo', action='store_true', help='Show ELO rankings')
     parser.add_argument('--show-table', action='store_true', help='Show league table')
+    parser.add_argument('--debug', action='store_true', help='Show detailed debug information (xG values, etc.)')
 
     args = parser.parse_args()
 
     # Initialize predictor (now with automatic fallback to mock data)
-    predictor = BundesligaPredictor(use_live_data=args.live)
+    predictor = BundesligaPredictor(use_live_data=args.live, debug=args.debug)
 
     # Execute commands
     if args.show_elo:
@@ -372,9 +410,9 @@ Examples:
     elif args.show_table:
         predictor.show_table()
     elif args.matchday:
-        predictor.predict_matchday(args.matchday)
+        predictor.predict_matchday(args.matchday, debug=args.debug)
     elif args.team1 and args.team2:
-        predictor.predict_match(args.team1, args.team2)
+        predictor.predict_match(args.team1, args.team2, debug=args.debug)
     else:
         # Default: Show demo prediction
         print("\n" + "=" * 70)
