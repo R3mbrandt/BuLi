@@ -264,9 +264,12 @@ class TransfermarktScraper:
 
         return df
 
-    def _fetch_all_bundesliga_injuries(self) -> Dict[str, List[Dict]]:
+    def _fetch_all_bundesliga_injuries(self, debug: bool = False) -> Dict[str, List[Dict]]:
         """
         Fetch all injuries from the Bundesliga competition page
+
+        Args:
+            debug: If True, print detailed parsing information
 
         Returns:
             Dictionary mapping team names to lists of injured players
@@ -298,7 +301,10 @@ class TransfermarktScraper:
             injuries_by_team = {}
             rows = injury_table.find_all('tr', class_=['odd', 'even'])
 
-            for row in rows:
+            if debug:
+                print(f"\n🔍 Debug: Found {len(rows)} rows in injury table")
+
+            for row_idx, row in enumerate(rows):
                 try:
                     # Get player name
                     player_cell = row.find('td', class_='hauptlink')
@@ -308,24 +314,44 @@ class TransfermarktScraper:
                     player_link = player_cell.find('a')
                     player_name = player_link.text.strip() if player_link else 'Unknown'
 
-                    # Get team name (club logo/link)
-                    team_cells = row.find_all('td', class_='zentriert')
+                    # Get team name - multiple strategies
                     team_name = None
 
-                    for cell in team_cells:
-                        img = cell.find('img')
-                        if img and 'alt' in img.attrs:
-                            team_name = img['alt'].strip()
-                            break
+                    # Strategy 1: Look for img with alt text (team logo)
+                    imgs = row.find_all('img')
+                    for img in imgs:
+                        if 'alt' in img.attrs and img['alt'].strip():
+                            # Check if this is likely a team name (not a flag, etc.)
+                            alt_text = img['alt'].strip()
+                            if len(alt_text) > 2 and not alt_text.lower() in ['de', 'en', 'br', 'fr', 'es']:
+                                team_name = alt_text
+                                if debug and row_idx < 5:
+                                    print(f"  Row {row_idx}: Found team via img alt: {team_name}")
+                                break
 
-                        # Alternative: find club link
-                        club_link = cell.find('a')
-                        if club_link and '/verein/' in club_link.get('href', ''):
-                            team_name = club_link.get('title', '').strip()
+                    # Strategy 2: Look in all cells for team-related info
+                    if not team_name:
+                        all_cells = row.find_all('td')
+                        for cell in all_cells:
+                            # Check for links to team pages
+                            links = cell.find_all('a')
+                            for link in links:
+                                href = link.get('href', '')
+                                if '/verein/' in href and '/startseite/verein/' in href:
+                                    # This is likely a team link
+                                    team_name = link.get('title', '').strip()
+                                    if not team_name:
+                                        team_name = link.text.strip()
+                                    if team_name:
+                                        if debug and row_idx < 5:
+                                            print(f"  Row {row_idx}: Found team via link: {team_name}")
+                                        break
                             if team_name:
                                 break
 
                     if not team_name:
+                        if debug and row_idx < 5:
+                            print(f"  Row {row_idx}: No team found for player {player_name}")
                         continue
 
                     # Get injury details
@@ -333,7 +359,8 @@ class TransfermarktScraper:
                     injury_type = 'Unknown'
                     expected_return = 'Unknown'
 
-                    # Extract injury type and expected return (varies by page structure)
+                    # The table structure typically has these columns:
+                    # Player | Position | Team | Injury | From | Until
                     for idx, cell in enumerate(all_cells):
                         cell_text = cell.text.strip()
 
@@ -341,11 +368,14 @@ class TransfermarktScraper:
                         if not cell_text or cell_text == player_name or cell_text == team_name:
                             continue
 
-                        # Look for injury keywords
-                        if any(keyword in cell_text.lower() for keyword in ['injury', 'verletzung', 'muscle', 'knee', 'ankle', 'back']):
+                        # Look for injury description (typically longer text with injury keywords)
+                        lower_text = cell_text.lower()
+                        if any(keyword in lower_text for keyword in ['injury', 'verletzung', 'muscle', 'muskel', 'knee', 'knie', 'ankle', 'sprunggelenk', 'back', 'rücken', 'thigh', 'oberschenkel', 'calf', 'wade']):
                             injury_type = cell_text
-                        elif any(keyword in cell_text.lower() for keyword in ['return', 'rückkehr', 'expected', 'voraussichtlich']):
-                            expected_return = cell_text
+                        # Look for date-like patterns for return date
+                        elif any(char.isdigit() for char in cell_text) and len(cell_text) < 30:
+                            if expected_return == 'Unknown' or '.' in cell_text or '/' in cell_text:
+                                expected_return = cell_text
 
                     # Add to team's injury list
                     if team_name not in injuries_by_team:
@@ -357,12 +387,22 @@ class TransfermarktScraper:
                         'expected_return': expected_return
                     })
 
+                    if debug and row_idx < 5:
+                        print(f"  Row {row_idx}: Added {player_name} to {team_name}")
+
                 except Exception as e:
-                    # Skip rows that fail to parse
+                    if debug:
+                        print(f"  Row {row_idx}: Error parsing - {e}")
                     continue
 
             # Cache the results
             self._bundesliga_injuries_cache = injuries_by_team
+
+            if debug:
+                print(f"\n📊 Teams found with injuries:")
+                for team, players in sorted(injuries_by_team.items()):
+                    print(f"  {team}: {len(players)} injured")
+
             print(f"✓ Found injuries for {len(injuries_by_team)} teams")
 
             return injuries_by_team
@@ -374,12 +414,13 @@ class TransfermarktScraper:
             print(f"✗ Error parsing Bundesliga injuries: {e}")
             return {}
 
-    def get_injuries(self, team_name: str) -> Optional[Dict]:
+    def get_injuries(self, team_name: str, debug: bool = False) -> Optional[Dict]:
         """
         Get injury information for a team
 
         Args:
             team_name: Team name
+            debug: If True, print detailed matching information
 
         Returns:
             Dictionary with injury info or None
@@ -394,33 +435,70 @@ class TransfermarktScraper:
         print(f"Fetching injuries for {team_name}...")
 
         # Get all Bundesliga injuries (cached after first call)
-        all_injuries = self._fetch_all_bundesliga_injuries()
+        all_injuries = self._fetch_all_bundesliga_injuries(debug=debug)
 
         if not all_injuries:
             return None
 
         # Find this team's injuries by matching team name
         injured_players = []
+        matched_team = None
 
         # Try exact match first
         if team_name in all_injuries:
             injured_players = all_injuries[team_name]
+            matched_team = team_name
+            if debug:
+                print(f"  ✓ Exact match: '{team_name}'")
         else:
             # Try partial match (Transfermarkt might use slightly different names)
+            if debug:
+                print(f"  No exact match for '{team_name}', trying partial matches...")
+                print(f"  Available teams: {list(all_injuries.keys())}")
+
+            # Try multiple matching strategies
             for tm_team_name, players in all_injuries.items():
-                if (team_name.lower() in tm_team_name.lower() or
-                    tm_team_name.lower() in team_name.lower()):
+                # Strategy 1: Check if our team name is contained in Transfermarkt name
+                if team_name.lower() in tm_team_name.lower():
                     injured_players = players
+                    matched_team = tm_team_name
+                    if debug:
+                        print(f"  ✓ Partial match (our name in TM): '{team_name}' -> '{tm_team_name}'")
                     break
 
-        print(f"✓ Found {len(injured_players)} injured player(s)")
+                # Strategy 2: Check if Transfermarkt name is contained in our team name
+                if tm_team_name.lower() in team_name.lower():
+                    injured_players = players
+                    matched_team = tm_team_name
+                    if debug:
+                        print(f"  ✓ Partial match (TM in our name): '{team_name}' -> '{tm_team_name}'")
+                    break
+
+                # Strategy 3: Try matching key parts (e.g., "Mainz" in "1. FSV Mainz 05")
+                team_words = team_name.lower().split()
+                tm_words = tm_team_name.lower().split()
+                common_words = set(team_words) & set(tm_words)
+                # Filter out common short words
+                significant_words = {w for w in common_words if len(w) > 3 and w not in ['von', 'der', 'die', 'das']}
+                if significant_words:
+                    injured_players = players
+                    matched_team = tm_team_name
+                    if debug:
+                        print(f"  ✓ Word match: '{team_name}' -> '{tm_team_name}' (common: {significant_words})")
+                    break
+
+        if debug and not matched_team:
+            print(f"  ✗ No match found for '{team_name}'")
+
+        print(f"✓ Found {len(injured_players)} injured player(s)" + (f" for {matched_team}" if matched_team != team_name else ""))
 
         return {
             'team': team_name,
             'injured_count': len(injured_players),
             'injured_players': injured_players,
             'source': 'transfermarkt',
-            'url': f"{self.BASE_URL}/bundesliga/verletztespieler/wettbewerb/L1"
+            'url': f"{self.BASE_URL}/bundesliga/verletztespieler/wettbewerb/L1",
+            'matched_team': matched_team  # Show which team name was actually matched
         }
 
     def get_all_bundesliga_injuries(self) -> pd.DataFrame:
@@ -497,19 +575,20 @@ def get_squad_value_with_fallback(team_name: str, fallback_data: Optional[Dict] 
     }
 
 
-def get_injuries_with_fallback(team_name: str, fallback_data: Optional[Dict] = None) -> Dict:
+def get_injuries_with_fallback(team_name: str, fallback_data: Optional[Dict] = None, debug: bool = False) -> Dict:
     """
     Get injury data with automatic fallback to mock data
 
     Args:
         team_name: Team name
         fallback_data: Optional dict with fallback values
+        debug: If True, print detailed matching information
 
     Returns:
         Dictionary with injury data
     """
     scraper = TransfermarktScraper()
-    data = scraper.get_injuries(team_name)
+    data = scraper.get_injuries(team_name, debug=debug)
 
     if data:
         return data
