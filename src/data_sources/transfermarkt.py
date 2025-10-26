@@ -63,7 +63,10 @@ class TransfermarktScraper:
         '1. FC Heidenheim 1846': ('1-fc-heidenheim-1846', 2036),
         'SV Darmstadt 98': ('sv-darmstadt-98', 105),
         'Holstein Kiel': ('holstein-kiel', 1128),
-        'FC St. Pauli': ('fc-st-pauli', 35)
+        'FC St. Pauli': ('fc-st-pauli', 35),
+        'Hamburger SV': ('hamburger-sv', 41),
+        'HSV': ('hamburger-sv', 41),
+        'Hamburg': ('hamburger-sv', 41)
     }
 
     def __init__(self):
