@@ -3,9 +3,11 @@ Transfermarkt Web Scraper
 Scrapes squad values and injury data from Transfermarkt.de
 
 Website: https://www.transfermarkt.de/
+Uses CloudScraper to bypass Cloudflare protection
 """
 
-import requests
+import cloudscraper
+import requests  # For exception handling
 from bs4 import BeautifulSoup
 import pandas as pd
 import time
@@ -13,9 +15,17 @@ import re
 from typing import Optional, Dict, List
 from urllib.parse import quote
 
+try:
+    from .cache import get_cache
+except ImportError:
+    from cache import get_cache
+
 
 # Modern Chrome User-Agent (January 2025)
 MODERN_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+
+# Cache configuration
+CACHE_EXPIRY_HOURS = 24  # Cache data for 24 hours
 
 
 class TransfermarktScraper:
@@ -69,23 +79,31 @@ class TransfermarktScraper:
         'Hamburg': ('hamburger-sv', 41)
     }
 
-    def __init__(self):
-        """Initialize Transfermarkt scraper"""
-        self.session = requests.Session()
+    def __init__(self, use_cache: bool = True, cache_expiry_hours: int = CACHE_EXPIRY_HOURS):
+        """
+        Initialize Transfermarkt scraper
+
+        Args:
+            use_cache: If True, use file cache to speed up requests
+            cache_expiry_hours: Hours until cached data expires
+        """
+        # Use cloudscraper to bypass Cloudflare protection
+        self.session = cloudscraper.create_scraper(
+            browser={
+                'browser': 'chrome',
+                'platform': 'windows',
+                'desktop': True
+            }
+        )
+        # CloudScraper handles most headers automatically, add custom ones
         self.session.headers.update({
-            'User-Agent': MODERN_USER_AGENT,
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
             'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-            'Sec-Fetch-Dest': 'document',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-Site': 'none',
-            'Cache-Control': 'max-age=0'
         })
-        self._bundesliga_injuries_cache = None  # Cache for all Bundesliga injuries
+        self._bundesliga_injuries_cache = None  # Memory cache for all Bundesliga injuries
         self._bundesliga_team_mappings_cache = None  # Dynamic team mappings from scraped data
+        self.use_cache = use_cache
+        self.cache_expiry_hours = cache_expiry_hours
+        self.cache = get_cache(expiry_hours=cache_expiry_hours) if use_cache else None
 
     def _get_team_info(self, team_name: str) -> Optional[tuple]:
         """
@@ -167,7 +185,7 @@ class TransfermarktScraper:
 
     def get_squad_value(self, team_name: str) -> Optional[Dict]:
         """
-        Get squad value for a team
+        Get squad value for a team (with caching)
 
         Args:
             team_name: Team name
@@ -175,6 +193,14 @@ class TransfermarktScraper:
         Returns:
             Dictionary with squad value info or None
         """
+        # Check cache first
+        if self.use_cache and self.cache:
+            cache_key = f"squad_value_{team_name}"
+            cached_data = self.cache.get(cache_key, expiry_hours=self.cache_expiry_hours)
+            if cached_data:
+                print(f"✓ Using cached squad value for {team_name}")
+                return cached_data
+
         team_info = self._get_team_info(team_name)
         if not team_info:
             print(f"⚠️  Team '{team_name}' not found in Transfermarkt mappings")
@@ -234,13 +260,20 @@ class TransfermarktScraper:
 
             if total_value > 0:
                 print(f"✓ Found squad value: €{total_value:,.0f}")
-                return {
+                result = {
                     'team': team_name,
                     'squad_value': total_value,
                     'squad_value_millions': total_value / 1_000_000,
                     'source': 'transfermarkt',
                     'url': url
                 }
+
+                # Cache the result
+                if self.use_cache and self.cache:
+                    cache_key = f"squad_value_{team_name}"
+                    self.cache.set(cache_key, result)
+
+                return result
             else:
                 print(f"⚠️  Could not extract squad value for {team_name}")
                 return None
@@ -281,7 +314,7 @@ class TransfermarktScraper:
 
     def _fetch_all_bundesliga_injuries(self, debug: bool = False) -> Dict[str, List[Dict]]:
         """
-        Fetch all injuries from the Bundesliga competition page
+        Fetch all injuries from the Bundesliga competition page (with caching)
 
         Args:
             debug: If True, print detailed parsing information
@@ -289,9 +322,19 @@ class TransfermarktScraper:
         Returns:
             Dictionary mapping team names to lists of injured players
         """
-        # Use cache if available
+        # Use memory cache if available
         if self._bundesliga_injuries_cache is not None:
             return self._bundesliga_injuries_cache
+
+        # Check file cache
+        if self.use_cache and self.cache:
+            cache_key = "bundesliga_injuries_all"
+            cached_data = self.cache.get(cache_key, expiry_hours=self.cache_expiry_hours)
+            if cached_data:
+                print(f"✓ Using cached Bundesliga injury data")
+                self._bundesliga_injuries_cache = cached_data['injuries']
+                self._bundesliga_team_mappings_cache = cached_data['team_mappings']
+                return self._bundesliga_injuries_cache
 
         # Bundesliga injury page URL (competition-wide)
         url = f"{self.BASE_URL}/bundesliga/verletztespieler/wettbewerb/L1/plus/1"
@@ -454,9 +497,18 @@ class TransfermarktScraper:
                         print(f"  Row {row_idx}: Error parsing - {e}")
                     continue
 
-            # Cache the results
+            # Cache the results in memory
             self._bundesliga_injuries_cache = injuries_by_team
             self._bundesliga_team_mappings_cache = team_mappings  # Cache dynamic team mappings
+
+            # Cache the results to file
+            if self.use_cache and self.cache:
+                cache_key = "bundesliga_injuries_all"
+                cache_data = {
+                    'injuries': injuries_by_team,
+                    'team_mappings': team_mappings
+                }
+                self.cache.set(cache_key, cache_data)
 
             if debug:
                 print(f"\n📊 Teams found with injuries:")

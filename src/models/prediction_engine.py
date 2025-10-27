@@ -287,32 +287,43 @@ class BundesligaPredictionEngine:
             combined_away /= total
 
         # Convert to expected goals (lambda for Poisson)
+        # NEW APPROACH: Use factor breakdown directly for transparency
         # Based on Bundesliga 2024/25 statistics:
         # - Average: 3.1 goals per game (1.7 home, 1.4 away)
         # - Most common results: 1:1 (11.6%), 2:1, 1:0 (7.2%)
 
-        # Use more realistic base values
         bundesliga_avg_home = 1.7
         bundesliga_avg_away = 1.4
 
-        # Calculate strength multiplier with bounded scaling
-        # Prevents extreme lambda values that lead to unrealistic high-scoring predictions
+        # Calculate lambda contribution from each factor
+        # Each weighted factor contributes to goal expectation
+        # Scale: factor strength (0-1) → lambda adjustment (-0.5 to +0.5)
 
-        # Strength difference (bounded between -0.5 and 0.5)
-        strength_diff = combined_home - combined_away
-        strength_diff = max(-0.5, min(0.5, strength_diff))  # Cap at ±0.5
+        # Home team lambda components
+        elo_contrib_home = (elo_home - 0.5) * self.weights['elo'] * 1.2
+        xg_contrib_home = (xg_home - 0.5) * self.weights['xg'] * 1.2
+        value_contrib_home = (value_home - 0.5) * self.weights['squad_value'] * 1.0
+        h2h_contrib_home = (h2h_home - 0.5) * self.weights['h2h'] * 0.8
+        injury_contrib_home = -injury_penalty_home * 0.5  # Negative contribution
 
-        # Convert to multiplier using a softer curve
-        # This produces multipliers between ~0.7x and ~1.4x
-        home_multiplier = 1.0 + (strength_diff * 0.8)
-        away_multiplier = 1.0 - (strength_diff * 0.8)
+        # Away team lambda components
+        elo_contrib_away = (elo_away - 0.5) * self.weights['elo'] * 1.2
+        xg_contrib_away = (xg_away - 0.5) * self.weights['xg'] * 1.2
+        value_contrib_away = (value_away - 0.5) * self.weights['squad_value'] * 1.0
+        h2h_contrib_away = (h2h_away - 0.5) * self.weights['h2h'] * 0.8
+        injury_contrib_away = -injury_penalty_away * 0.5  # Negative contribution
 
-        # Apply multipliers to Bundesliga averages
-        home_lambda = bundesliga_avg_home * home_multiplier
-        away_lambda = bundesliga_avg_away * away_multiplier
+        # Sum contributions and add to base expectation
+        home_lambda = bundesliga_avg_home + (
+            elo_contrib_home + xg_contrib_home + value_contrib_home +
+            h2h_contrib_home + injury_contrib_home
+        )
+        away_lambda = bundesliga_avg_away + (
+            elo_contrib_away + xg_contrib_away + value_contrib_away +
+            h2h_contrib_away + injury_contrib_away
+        )
 
         # Apply safety caps to prevent unrealistic scores
-        # Maximum: 3.0 goals for home, 2.5 for away
         home_lambda = min(3.0, max(0.5, home_lambda))
         away_lambda = min(2.5, max(0.5, away_lambda))
 

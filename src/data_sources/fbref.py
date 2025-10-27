@@ -19,6 +19,14 @@ from typing import Optional, Dict, List, Tuple
 import time
 import re
 
+try:
+    from .cache import get_cache
+except ImportError:
+    from cache import get_cache
+
+# Cache configuration
+CACHE_EXPIRY_HOURS = 24  # Cache data for 24 hours
+
 
 class FBrefScraper:
     """
@@ -32,7 +40,14 @@ class FBrefScraper:
     # Competition ID for Bundesliga
     BUNDESLIGA_ID = "20"
 
-    def __init__(self):
+    def __init__(self, use_cache: bool = True, cache_expiry_hours: int = CACHE_EXPIRY_HOURS):
+        """
+        Initialize FBref scraper
+
+        Args:
+            use_cache: If True, use file cache to speed up requests
+            cache_expiry_hours: Hours until cached data expires
+        """
         # Use cloudscraper to bypass Cloudflare protection
         # Note: This works on local machines but may be blocked in cloud/datacenter environments
         # FBref blocks datacenter IPs but allows residential IPs
@@ -47,6 +62,9 @@ class FBrefScraper:
         self.session.headers.update({
             'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7',
         })
+        self.use_cache = use_cache
+        self.cache_expiry_hours = cache_expiry_hours
+        self.cache = get_cache(expiry_hours=cache_expiry_hours) if use_cache else None
 
     def _get_page(self, url: str, delay: float = 3.0) -> Optional[BeautifulSoup]:
         """
@@ -74,7 +92,7 @@ class FBrefScraper:
 
     def get_league_table(self, season: str = "2024-2025") -> pd.DataFrame:
         """
-        Get current Bundesliga league table/standings
+        Get current Bundesliga league table/standings (with caching)
 
         Args:
             season: Season in format "YYYY-YYYY" (e.g., "2024-2025")
@@ -82,6 +100,14 @@ class FBrefScraper:
         Returns:
             DataFrame with league table
         """
+        # Check cache first
+        if self.use_cache and self.cache:
+            cache_key = f"fbref_league_table_{season}"
+            cached_data = self.cache.get(cache_key, expiry_hours=self.cache_expiry_hours)
+            if cached_data is not None:
+                print(f"✓ Using cached league table for {season}")
+                return cached_data
+
         url = f"{self.BUNDESLIGA_URL}/Bundesliga-Stats"
         soup = self._get_page(url)
 
@@ -130,6 +156,11 @@ class FBrefScraper:
                 if old in df.columns:
                     df.rename(columns={old: new}, inplace=True)
 
+            # Cache the result
+            if self.use_cache and self.cache:
+                cache_key = f"fbref_league_table_{season}"
+                self.cache.set(cache_key, df)
+
             return df
 
         except Exception as e:
@@ -138,15 +169,23 @@ class FBrefScraper:
 
     def get_match_results(self, season: str = "2024-2025", limit: int = 50) -> pd.DataFrame:
         """
-        Get recent match results
+        Get recent match results (with caching)
 
         Args:
             season: Season in format "YYYY-YYYY"
             limit: Maximum number of matches to return
 
         Returns:
-            DataFrame with match results
+            DataFrame with match results including xG data
         """
+        # Check cache first
+        if self.use_cache and self.cache:
+            cache_key = f"fbref_match_results_{season}_{limit}"
+            cached_data = self.cache.get(cache_key, expiry_hours=self.cache_expiry_hours)
+            if cached_data is not None:
+                print(f"✓ Using cached match results for {season}")
+                return cached_data
+
         url = f"{self.BUNDESLIGA_URL}/schedule/Bundesliga-Scores-and-Fixtures"
         soup = self._get_page(url)
 
@@ -198,6 +237,11 @@ class FBrefScraper:
             if len(df) > limit:
                 df = df.tail(limit)
 
+            # Cache the result
+            if self.use_cache and self.cache:
+                cache_key = f"fbref_match_results_{season}_{limit}"
+                self.cache.set(cache_key, df)
+
             return df
 
         except Exception as e:
@@ -206,7 +250,7 @@ class FBrefScraper:
 
     def get_team_xg_stats(self, season: str = "2024-2025") -> pd.DataFrame:
         """
-        Get xG statistics for all teams
+        Get xG statistics for all teams (with caching)
 
         Args:
             season: Season in format "YYYY-YYYY"
@@ -214,6 +258,14 @@ class FBrefScraper:
         Returns:
             DataFrame with team xG statistics
         """
+        # Check cache first
+        if self.use_cache and self.cache:
+            cache_key = f"fbref_team_xg_{season}"
+            cached_data = self.cache.get(cache_key, expiry_hours=self.cache_expiry_hours)
+            if cached_data is not None:
+                print(f"✓ Using cached xG statistics for {season}")
+                return cached_data
+
         url = f"{self.BUNDESLIGA_URL}/Bundesliga-Stats"
         soup = self._get_page(url)
 
@@ -244,6 +296,11 @@ class FBrefScraper:
 
             if xg_columns:
                 df = df[xg_columns]
+
+            # Cache the result
+            if self.use_cache and self.cache:
+                cache_key = f"fbref_team_xg_{season}"
+                self.cache.set(cache_key, df)
 
             return df
 
