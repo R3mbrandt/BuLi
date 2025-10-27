@@ -6,6 +6,7 @@ Combines multiple data sources and models to predict match outcomes:
 - Squad value (monetary)
 - Injuries
 - Head-to-head record
+- Betting odds (optional)
 """
 
 import pandas as pd
@@ -21,25 +22,54 @@ except ImportError:
     from elo_rating import ELORatingSystem
     from poisson_model import PoissonMatchPredictor
 
+# Import betting odds (works for both cases)
+try:
+    from ..data_sources.betting_odds import get_odds_strength, get_odds_lambdas
+except (ImportError, ValueError):
+    try:
+        from data_sources.betting_odds import get_odds_strength, get_odds_lambdas
+    except ImportError:
+        import sys
+        sys.path.append('/home/user/BuLi/src')
+        from data_sources.betting_odds import get_odds_strength, get_odds_lambdas
+
 
 class BundesligaPredictionEngine:
     """
     Main prediction engine that combines all factors
     """
 
-    def __init__(self):
-        """Initialize prediction engine"""
+    def __init__(self, use_odds: bool = False, odds_mode: str = 'factor'):
+        """
+        Initialize prediction engine
+
+        Args:
+            use_odds: If True, incorporate betting odds into predictions
+            odds_mode: How to use odds - 'factor' (as additional factor) or 'calibration' (calibrate lambdas)
+        """
         self.elo_system = ELORatingSystem(k_factor=32, home_advantage=100)
         self.poisson_predictor = PoissonMatchPredictor()
+        self.use_odds = use_odds
+        self.odds_mode = odds_mode  # 'factor' or 'calibration'
 
-        # Weights for different factors (must sum to 1.0)
-        self.weights = {
-            'elo': 0.35,          # ELO ratings
-            'xg': 0.30,           # Expected goals
-            'squad_value': 0.15,  # Monetary squad value
-            'injuries': 0.10,     # Injury impact
-            'h2h': 0.10           # Head-to-head record
-        }
+        # Weights for different factors
+        if use_odds and odds_mode == 'factor':
+            # Include odds as a factor (must sum to 1.0)
+            self.weights = {
+                'elo': 0.25,          # ELO ratings
+                'xg': 0.25,           # Expected goals
+                'squad_value': 0.15,  # Monetary squad value
+                'h2h': 0.10,          # Head-to-head record
+                'odds': 0.25          # Betting odds (market wisdom)
+            }
+        else:
+            # Traditional weights without odds
+            self.weights = {
+                'elo': 0.35,          # ELO ratings
+                'xg': 0.30,           # Expected goals
+                'squad_value': 0.15,  # Monetary squad value
+                'h2h': 0.10           # Head-to-head record
+            }
 
     def set_weights(self, elo: float = 0.35, xg: float = 0.30,
                    squad_value: float = 0.15, injuries: float = 0.10,
@@ -261,20 +291,48 @@ class BundesligaPredictionEngine:
             away_team
         )
 
-        # Combine strengths using weights
-        combined_home = (
-            self.weights['elo'] * elo_home +
-            self.weights['xg'] * xg_home +
-            self.weights['squad_value'] * value_home +
-            self.weights['h2h'] * h2h_home
-        )
+        # Get betting odds if enabled (Option A: as factor)
+        odds_home, odds_away = 0.5, 0.5
+        if self.use_odds and self.odds_mode == 'factor':
+            try:
+                odds_home, odds_away = get_odds_strength(home_team, away_team)
+            except Exception as e:
+                print(f"⚠️  Could not fetch odds: {e}")
+                odds_home, odds_away = 0.5, 0.5
 
-        combined_away = (
-            self.weights['elo'] * elo_away +
-            self.weights['xg'] * xg_away +
-            self.weights['squad_value'] * value_away +
-            self.weights['h2h'] * h2h_away
-        )
+        # Combine strengths using weights
+        if self.use_odds and self.odds_mode == 'factor':
+            # Include odds as a factor
+            combined_home = (
+                self.weights['elo'] * elo_home +
+                self.weights['xg'] * xg_home +
+                self.weights['squad_value'] * value_home +
+                self.weights['h2h'] * h2h_home +
+                self.weights['odds'] * odds_home
+            )
+
+            combined_away = (
+                self.weights['elo'] * elo_away +
+                self.weights['xg'] * xg_away +
+                self.weights['squad_value'] * value_away +
+                self.weights['h2h'] * h2h_away +
+                self.weights['odds'] * odds_away
+            )
+        else:
+            # Traditional calculation without odds
+            combined_home = (
+                self.weights['elo'] * elo_home +
+                self.weights['xg'] * xg_home +
+                self.weights['squad_value'] * value_home +
+                self.weights['h2h'] * h2h_home
+            )
+
+            combined_away = (
+                self.weights['elo'] * elo_away +
+                self.weights['xg'] * xg_away +
+                self.weights['squad_value'] * value_away +
+                self.weights['h2h'] * h2h_away
+            )
 
         # Apply injury penalties
         combined_home *= (1 - injury_penalty_home)
@@ -324,6 +382,18 @@ class BundesligaPredictionEngine:
             h2h_contrib_away + injury_contrib_away
         )
 
+        # Option B: Calibrate lambdas with betting odds
+        if self.use_odds and self.odds_mode == 'calibration':
+            try:
+                odds_lambda_home, odds_lambda_away = get_odds_lambdas(home_team, away_team)
+                # Mix our lambdas (70%) with market lambdas (30%)
+                # Market has valuable info but we trust our model more
+                home_lambda = 0.7 * home_lambda + 0.3 * odds_lambda_home
+                away_lambda = 0.7 * away_lambda + 0.3 * odds_lambda_away
+                print(f"  📊 Calibrated with odds: Our {home_lambda:.2f}/{away_lambda:.2f} + Market {odds_lambda_home:.2f}/{odds_lambda_away:.2f}")
+            except Exception as e:
+                print(f"⚠️  Could not calibrate with odds: {e}")
+
         # Apply safety caps to prevent unrealistic scores
         # Increased caps to allow for stronger team differentiation
         home_lambda = min(3.5, max(0.5, home_lambda))
@@ -359,9 +429,11 @@ class BundesligaPredictionEngine:
                 'xg': {'home': xg_home, 'away': xg_away},
                 'squad_value': {'home': value_home, 'away': value_away},
                 'h2h': {'home': h2h_home, 'away': h2h_away},
+                'odds': {'home': odds_home, 'away': odds_away} if self.use_odds and self.odds_mode == 'factor' else None,
                 'injury_penalty': {'home': injury_penalty_home, 'away': injury_penalty_away}
             },
-            'combined_strength': {'home': combined_home, 'away': combined_away}
+            'combined_strength': {'home': combined_home, 'away': combined_away},
+            'odds_mode': self.odds_mode if self.use_odds else None
         }
 
     def format_prediction_report(self, prediction: Dict) -> str:
@@ -413,10 +485,19 @@ class BundesligaPredictionEngine:
         report.append(f"  xG:          Home {factors['xg']['home']:.1%} | Away {factors['xg']['away']:.1%}")
         report.append(f"  Squad Value: Home {factors['squad_value']['home']:.1%} | Away {factors['squad_value']['away']:.1%}")
         report.append(f"  H2H:         Home {factors['h2h']['home']:.1%} | Away {factors['h2h']['away']:.1%}")
+
+        # Show odds if used as factor
+        if factors.get('odds'):
+            report.append(f"  Odds:        Home {factors['odds']['home']:.1%} | Away {factors['odds']['away']:.1%}")
+
         report.append(f"  Injuries:    Home -{factors['injury_penalty']['home']:.1%} | Away -{factors['injury_penalty']['away']:.1%}")
 
         combined = prediction['combined_strength']
         report.append(f"\n  Combined:    Home {combined['home']:.1%} | Away {combined['away']:.1%}")
+
+        # Show odds mode if used
+        if prediction.get('odds_mode'):
+            report.append(f"  📊 Odds Mode: {prediction['odds_mode']}")
 
         report.append("\n" + "=" * 70)
 

@@ -41,17 +41,22 @@ import pandas as pd
 class BundesligaPredictor:
     """Main predictor class"""
 
-    def __init__(self, use_live_data: bool = False, debug: bool = False):
+    def __init__(self, use_live_data: bool = False, debug: bool = False,
+                 use_odds: bool = False, odds_mode: str = 'factor'):
         """
         Initialize predictor
 
         Args:
             use_live_data: If True, fetch live data from OpenLigaDB
             debug: If True, show detailed debug information
+            use_odds: If True, incorporate betting odds into predictions
+            odds_mode: How to use odds - 'factor' or 'calibration'
         """
         self.use_live_data = use_live_data
         self.debug = debug
-        self.engine = BundesligaPredictionEngine()
+        self.use_odds = use_odds
+        self.odds_mode = odds_mode
+        self.engine = BundesligaPredictionEngine(use_odds=use_odds, odds_mode=odds_mode)
         self.elo_system = ELORatingSystem()
         self.data_source = "mock"  # Track actual data source used
 
@@ -398,11 +403,19 @@ Examples:
     parser.add_argument('--show-elo', action='store_true', help='Show ELO rankings')
     parser.add_argument('--show-table', action='store_true', help='Show league table')
     parser.add_argument('--debug', action='store_true', help='Show detailed debug information (xG values, etc.)')
+    parser.add_argument('--use-odds', action='store_true', help='Incorporate betting odds into predictions')
+    parser.add_argument('--odds-mode', choices=['factor', 'calibration'], default='factor',
+                       help='How to use odds: "factor" (as additional factor) or "calibration" (calibrate lambdas)')
 
     args = parser.parse_args()
 
     # Initialize predictor (now with automatic fallback to mock data)
-    predictor = BundesligaPredictor(use_live_data=args.live, debug=args.debug)
+    predictor = BundesligaPredictor(
+        use_live_data=args.live,
+        debug=args.debug,
+        use_odds=args.use_odds,
+        odds_mode=args.odds_mode
+    )
 
     # Execute commands
     if args.show_elo:
