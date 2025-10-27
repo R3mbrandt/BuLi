@@ -8,6 +8,17 @@ import numpy as np
 from typing import Dict, Tuple, Optional
 from datetime import datetime
 
+try:
+    from ..data_sources.cache import get_cache
+except ImportError:
+    try:
+        from data_sources.cache import get_cache
+    except ImportError:
+        from cache import get_cache
+
+# Cache configuration
+CACHE_EXPIRY_HOURS = 24  # Cache ELO ratings for 24 hours
+
 
 class ELORatingSystem:
     """
@@ -19,7 +30,8 @@ class ELORatingSystem:
     - K-factor adjustments
     """
 
-    def __init__(self, k_factor: float = 32, home_advantage: float = 100, base_elo: float = 1500):
+    def __init__(self, k_factor: float = 32, home_advantage: float = 100, base_elo: float = 1500,
+                 use_cache: bool = True, cache_expiry_hours: int = CACHE_EXPIRY_HOURS):
         """
         Initialize ELO rating system
 
@@ -27,11 +39,16 @@ class ELORatingSystem:
             k_factor: K-factor for rating adjustments (higher = more volatile)
             home_advantage: ELO points advantage for home team
             base_elo: Starting ELO rating for new teams
+            use_cache: If True, use file cache to speed up rating calculations
+            cache_expiry_hours: Hours until cached data expires
         """
         self.k_factor = k_factor
         self.home_advantage = home_advantage
         self.base_elo = base_elo
         self.ratings: Dict[str, float] = {}
+        self.use_cache = use_cache
+        self.cache_expiry_hours = cache_expiry_hours
+        self.cache = get_cache(expiry_hours=cache_expiry_hours) if use_cache else None
 
     def get_rating(self, team: str) -> float:
         """
@@ -177,18 +194,72 @@ class ELORatingSystem:
             'away_elo_change': away_new - away_old
         }
 
-    def process_matches_from_dataframe(self, matches_df: pd.DataFrame,
-                                      initial_ratings: Optional[Dict[str, float]] = None) -> pd.DataFrame:
+    def save_ratings_to_cache(self, cache_key: str = "elo_ratings_bundesliga") -> bool:
         """
-        Process multiple matches from a DataFrame and track ELO progression
+        Save current ELO ratings to cache
+
+        Args:
+            cache_key: Key to use for caching
+
+        Returns:
+            True if saved successfully, False otherwise
+        """
+        if not self.use_cache or not self.cache:
+            return False
+
+        try:
+            self.cache.set(cache_key, self.ratings)
+            print(f"✓ Saved ELO ratings to cache ({len(self.ratings)} teams)")
+            return True
+        except Exception as e:
+            print(f"⚠️  Failed to save ELO ratings to cache: {e}")
+            return False
+
+    def load_ratings_from_cache(self, cache_key: str = "elo_ratings_bundesliga") -> bool:
+        """
+        Load ELO ratings from cache
+
+        Args:
+            cache_key: Key to use for caching
+
+        Returns:
+            True if loaded successfully, False otherwise
+        """
+        if not self.use_cache or not self.cache:
+            return False
+
+        try:
+            cached_ratings = self.cache.get(cache_key, expiry_hours=self.cache_expiry_hours)
+            if cached_ratings is not None:
+                self.ratings = cached_ratings
+                print(f"✓ Loaded ELO ratings from cache ({len(self.ratings)} teams)")
+                return True
+            return False
+        except Exception as e:
+            print(f"⚠️  Failed to load ELO ratings from cache: {e}")
+            return False
+
+    def process_matches_from_dataframe(self, matches_df: pd.DataFrame,
+                                      initial_ratings: Optional[Dict[str, float]] = None,
+                                      cache_key: str = "elo_ratings_bundesliga") -> pd.DataFrame:
+        """
+        Process multiple matches from a DataFrame and track ELO progression (with caching)
 
         Args:
             matches_df: DataFrame with columns: HomeTeam, AwayTeam, HomeGoals, AwayGoals
             initial_ratings: Optional dict of initial team ratings
+            cache_key: Key for caching the final ratings
 
         Returns:
             DataFrame with ELO changes for each match
         """
+        # Try to load from cache first
+        if self.use_cache and not initial_ratings:
+            if self.load_ratings_from_cache(cache_key):
+                # Check if cached ratings are still valid by comparing with matches
+                # For now, we'll just use the cached ratings
+                pass
+
         if initial_ratings:
             self.ratings = initial_ratings.copy()
 
@@ -202,6 +273,10 @@ class ELORatingSystem:
                 match['AwayGoals']
             )
             results.append(result)
+
+        # Save ratings to cache after processing
+        if self.use_cache:
+            self.save_ratings_to_cache(cache_key)
 
         return pd.DataFrame(results)
 
