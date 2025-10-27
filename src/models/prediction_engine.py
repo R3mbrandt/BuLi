@@ -297,21 +297,22 @@ class BundesligaPredictionEngine:
 
         # Calculate lambda contribution from each factor
         # Each weighted factor contributes to goal expectation
-        # Scale: factor strength (0-1) → lambda adjustment (-0.5 to +0.5)
+        # Scaling increased for more realistic differentiation between teams
+        # Strong teams should have significantly higher expected goals
 
-        # Home team lambda components
-        elo_contrib_home = (elo_home - 0.5) * self.weights['elo'] * 1.2
-        xg_contrib_home = (xg_home - 0.5) * self.weights['xg'] * 1.2
-        value_contrib_home = (value_home - 0.5) * self.weights['squad_value'] * 1.0
-        h2h_contrib_home = (h2h_home - 0.5) * self.weights['h2h'] * 0.8
-        injury_contrib_home = -injury_penalty_home * 0.5  # Negative contribution
+        # Home team lambda components (increased multipliers for stronger differentiation)
+        elo_contrib_home = (elo_home - 0.5) * self.weights['elo'] * 3.5
+        xg_contrib_home = (xg_home - 0.5) * self.weights['xg'] * 3.5
+        value_contrib_home = (value_home - 0.5) * self.weights['squad_value'] * 3.0
+        h2h_contrib_home = (h2h_home - 0.5) * self.weights['h2h'] * 2.5
+        injury_contrib_home = -injury_penalty_home * 0.8  # Increased injury impact
 
         # Away team lambda components
-        elo_contrib_away = (elo_away - 0.5) * self.weights['elo'] * 1.2
-        xg_contrib_away = (xg_away - 0.5) * self.weights['xg'] * 1.2
-        value_contrib_away = (value_away - 0.5) * self.weights['squad_value'] * 1.0
-        h2h_contrib_away = (h2h_away - 0.5) * self.weights['h2h'] * 0.8
-        injury_contrib_away = -injury_penalty_away * 0.5  # Negative contribution
+        elo_contrib_away = (elo_away - 0.5) * self.weights['elo'] * 3.5
+        xg_contrib_away = (xg_away - 0.5) * self.weights['xg'] * 3.5
+        value_contrib_away = (value_away - 0.5) * self.weights['squad_value'] * 3.0
+        h2h_contrib_away = (h2h_away - 0.5) * self.weights['h2h'] * 2.5
+        injury_contrib_away = -injury_penalty_away * 0.8  # Increased injury impact
 
         # Sum contributions and add to base expectation
         home_lambda = bundesliga_avg_home + (
@@ -324,8 +325,9 @@ class BundesligaPredictionEngine:
         )
 
         # Apply safety caps to prevent unrealistic scores
-        home_lambda = min(3.0, max(0.5, home_lambda))
-        away_lambda = min(2.5, max(0.5, away_lambda))
+        # Increased caps to allow for stronger team differentiation
+        home_lambda = min(3.5, max(0.5, home_lambda))
+        away_lambda = min(3.0, max(0.5, away_lambda))
 
         # Use Poisson model for final prediction
         poisson_pred = self.poisson_predictor.predict_match_simple(home_lambda, away_lambda)
