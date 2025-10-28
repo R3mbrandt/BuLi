@@ -73,9 +73,11 @@ class APIFootballClient:
         # Set up session with headers
         self.session = requests.Session()
         if self.api_key:
+            # Support both RapidAPI and direct API-Football
             self.session.headers.update({
-                'x-rapidapi-host': 'v3.football.api-sports.io',
-                'x-rapidapi-key': self.api_key
+                'x-apisports-key': self.api_key,  # Direct API-Football
+                'x-rapidapi-key': self.api_key,   # RapidAPI
+                'x-rapidapi-host': 'v3.football.api-sports.io'  # RapidAPI
             })
 
         self.mock_mode = not self.api_key
