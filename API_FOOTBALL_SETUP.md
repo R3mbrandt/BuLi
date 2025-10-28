@@ -4,6 +4,7 @@ This project now uses **API-Football** (via RapidAPI) for:
 - ✅ Betting odds from Pinnacle, Betfair Exchange, and Bet365
 - ✅ Bundesliga fixtures and results
 - ✅ League standings/table
+- ✅ Expected Goals (xG) data for all teams and matches
 - ✅ Team statistics (for future backtesting)
 
 ## 🔑 Getting Your API Key
@@ -132,11 +133,13 @@ python predict.py --matchday 15 --use-odds
 - **Real odds** from Pinnacle, Betfair Exchange, Bet365
 - **Live fixtures** and results
 - **Bundesliga standings**
+- **Expected Goals (xG)** data for all matches
 - **Team statistics** (for backtesting)
 
 ### Without API Key (Mock Mode):
 - **Simulated odds** based on team strength
 - **Cached/Mock fixtures** from OpenLigaDB
+- **xG calculated from match data** (fallback method)
 - All features work, but with sample data
 
 ## 💰 API Usage Optimization
@@ -147,6 +150,7 @@ To minimize API calls and stay within limits:
    - Odds: 6 hours
    - Fixtures: 24 hours
    - Standings: 24 hours
+   - xG Statistics: 24 hours
 
 2. **Free Tier Tips** (100 requests/day):
    - ~3-5 matches per day with odds

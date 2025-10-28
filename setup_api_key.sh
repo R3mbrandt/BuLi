@@ -1,0 +1,26 @@
+#!/bin/bash
+# API-Football Setup Script
+# This script helps you set up your API-Football API key
+
+echo "==================================================================="
+echo "API-Football Setup"
+echo "==================================================================="
+echo ""
+echo "To use API-Football, you need to set your API key as an environment variable."
+echo ""
+echo "Please set your API key using one of these methods:"
+echo ""
+echo "1. For this session only:"
+echo "   export API_FOOTBALL_KEY='your-api-key-here'"
+echo ""
+echo "2. For permanent setup (add to ~/.bashrc or ~/.zshrc):"
+echo "   echo 'export API_FOOTBALL_KEY=\"your-api-key-here\"' >> ~/.bashrc"
+echo "   source ~/.bashrc"
+echo ""
+echo "3. Using .env file (recommended):"
+echo "   echo 'API_FOOTBALL_KEY=your-api-key-here' > .env"
+echo ""
+echo "After setting the key, run this to verify:"
+echo "   python -c \"import os; print('API Key set:', 'Yes' if os.getenv('API_FOOTBALL_KEY') else 'No')\""
+echo ""
+echo "==================================================================="
