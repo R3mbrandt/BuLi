@@ -150,8 +150,8 @@ class BundesligaPredictor:
 
             client = APIFootballClient()
 
-            # Get team xG statistics
-            xg_stats_df = client.get_team_xg_stats(season=2024)
+            # Get team xG statistics (uses current season by default)
+            xg_stats_df = client.get_team_xg_stats()
 
             if xg_stats_df is None or xg_stats_df.empty:
                 print("⚠️  API-Football: No xG data returned")
