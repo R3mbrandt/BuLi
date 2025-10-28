@@ -221,15 +221,10 @@ class APIFootballClient:
             return None
 
         # Fetch odds from API
-        bookmaker_ids = [
-            BOOKMAKERS['pinnacle'],
-            BOOKMAKERS['betfair'],
-            BOOKMAKERS['bet365']
-        ]
-
+        # Note: We fetch all bookmakers and filter afterwards
+        # API-Football doesn't support multiple bookmaker IDs in one request
         params = {
-            'fixture': fixture_id,
-            'bookmaker': ','.join(map(str, bookmaker_ids))
+            'fixture': fixture_id
         }
 
         response = self._make_request('/odds', params)
