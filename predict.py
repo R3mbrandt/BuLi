@@ -94,12 +94,12 @@ class BundesligaPredictor:
         # Calculate ELO ratings from matches
         self._initialize_elo_ratings()
 
-        # Get xG stats - prioritize FBref for live data
+        # Get xG stats - use API-Football for live data
         if self.use_live_data:
-            # Try FBref first for actual xG data
-            self.xg_stats = self._fetch_xg_from_fbref()
+            # Try API-Football first for actual xG data
+            self.xg_stats = self._fetch_xg_from_api_football()
 
-            # Fallback to calculating from matches if FBref fails
+            # Fallback to calculating from matches if API-Football fails
             if self.xg_stats is None or self.xg_stats.empty:
                 print("📊 Falling back to match-based xG calculation...")
                 self.xg_stats = self._calculate_xg_from_matches()
@@ -142,68 +142,55 @@ class BundesligaPredictor:
             initial_ratings=self.elo_system.ratings.copy()
         )
 
-    def _fetch_xg_from_fbref(self):
-        """Try to fetch xG data from FBref as primary source"""
+    def _fetch_xg_from_api_football(self):
+        """Try to fetch xG data from API-Football as primary source"""
         try:
-            print("\n📊 Attempting to fetch xG data from FBref...")
-            fbref = FBrefScraper()
+            print("\n📊 Attempting to fetch xG data from API-Football...")
+            from data_sources.api_football import APIFootballClient
 
-            # Get league table with xG data
-            table = fbref.get_league_table()
+            client = APIFootballClient()
 
-            if table.empty:
-                print("⚠️  FBref: No data returned")
+            # Get team xG statistics
+            xg_stats_df = client.get_team_xg_stats(season=2024)
+
+            if xg_stats_df is None or xg_stats_df.empty:
+                print("⚠️  API-Football: No xG data returned")
                 return None
 
-            # Check if xG columns exist
-            xg_cols = [col for col in table.columns if 'xG' in col]
-            if not xg_cols:
-                print("⚠️  FBref: No xG columns found in table")
-                return None
-
-            # Process the data
+            # Process the data to match expected format
             xg_data = []
-            for _, row in table.iterrows():
+            for _, row in xg_stats_df.iterrows():
                 team_name = row.get('Team', '')
                 if not team_name:
                     continue
 
-                # Get xG values
-                xg_total = row.get('xG', 0)
-                xga_total = row.get('xGA', 0)
-                matches_played = row.get('Played', row.get('MP', 1))
-
-                # Calculate per-match averages
-                if matches_played > 0:
-                    xg_per_match = xg_total / matches_played
-                    xga_per_match = xga_total / matches_played
-                else:
-                    xg_per_match = 1.5
-                    xga_per_match = 1.5
+                # API-Football returns averages directly
+                xg_per_match = row.get('xG_For', 1.5)
+                xga_per_match = row.get('xG_Against', 1.5)
 
                 xg_data.append({
                     'Team': team_name,
-                    'xG': xg_total,
-                    'xGA': xga_total,
+                    'xG': xg_per_match * row.get('Matches', 1),  # Approximate total
+                    'xGA': xga_per_match * row.get('Matches', 1),  # Approximate total
                     'xG_per_match': xg_per_match,
                     'xGA_per_match': xga_per_match
                 })
 
             if xg_data:
                 df = pd.DataFrame(xg_data)
-                print(f"✓ FBref: Successfully fetched xG data for {len(df)} teams")
+                print(f"✓ API-Football: Successfully fetched xG data for {len(df)} teams")
 
                 # Show source in debug mode
                 if self.debug:
-                    print("  📊 xG data source: FBref.com (actual Expected Goals)")
+                    print("  📊 xG data source: API-Football (actual Expected Goals)")
 
                 return df
             else:
-                print("⚠️  FBref: No xG data extracted")
+                print("⚠️  API-Football: No xG data extracted")
                 return None
 
         except Exception as e:
-            print(f"⚠️  FBref fetch failed: {e}")
+            print(f"⚠️  API-Football fetch failed: {e}")
             return None
 
     def _calculate_xg_from_matches(self):

@@ -541,6 +541,177 @@ class APIFootballClient:
         print("✗ xG data NOT available for Bundesliga in API-Football")
         return False
 
+    def get_match_xg(self, home_team: str, away_team: str, season: int = 2024) -> Optional[Dict]:
+        """
+        Get xG data for a specific match
+
+        Args:
+            home_team: Home team name
+            away_team: Away team name
+            season: Season year
+
+        Returns:
+            Dictionary with xG data for both teams
+        """
+        # Find fixture ID
+        fixture_id = self.find_fixture_id(home_team, away_team, season)
+
+        if not fixture_id:
+            return None
+
+        # Check cache
+        cache_key = f"xg_{fixture_id}"
+        if self.use_cache and self.cache:
+            cached_xg = self.cache.get(cache_key, expiry_hours=CACHE_EXPIRY_HOURS_FIXTURES)
+            if cached_xg:
+                return cached_xg
+
+        # Fetch statistics
+        params = {'fixture': fixture_id}
+        response = self._make_request('/fixtures/statistics', params)
+
+        if not response or not response.get('response'):
+            return None
+
+        # Parse xG data
+        result = {
+            'home_team': home_team,
+            'away_team': away_team,
+            'home_xg': None,
+            'away_xg': None
+        }
+
+        for idx, team_stats in enumerate(response['response']):
+            stats = team_stats.get('statistics', [])
+            for stat in stats:
+                stat_type = stat.get('type', '')
+                stat_value = stat.get('value')
+
+                if 'expected_goals' in stat_type.lower() or stat_type == 'expected_goals':
+                    if idx == 0:  # First team is home
+                        result['home_xg'] = float(stat_value) if stat_value else None
+                    else:  # Second team is away
+                        result['away_xg'] = float(stat_value) if stat_value else None
+
+        # Cache the result
+        if self.use_cache and self.cache:
+            self.cache.set(cache_key, result)
+
+        return result
+
+    def get_team_xg_stats(self, season: int = 2024) -> Optional[pd.DataFrame]:
+        """
+        Get xG statistics for all Bundesliga teams in a season
+
+        Args:
+            season: Season year
+
+        Returns:
+            DataFrame with team xG statistics
+        """
+        # Check cache
+        cache_key = f"team_xg_stats_{season}"
+        if self.use_cache and self.cache:
+            cached_stats = self.cache.get(cache_key, expiry_hours=CACHE_EXPIRY_HOURS_FIXTURES)
+            if cached_stats is not None:
+                print(f"✓ Using cached team xG stats for season {season}")
+                return cached_stats
+
+        # Get all completed fixtures
+        fixtures = self.get_bundesliga_fixtures(season=season)
+
+        if fixtures is None or fixtures.empty:
+            return None
+
+        completed = fixtures[fixtures['Status'] == 'FT']
+
+        if completed.empty:
+            print("⚠️  No completed matches for xG statistics")
+            return None
+
+        print(f"📊 Calculating xG statistics from {len(completed)} matches...")
+
+        # Aggregate xG stats per team
+        team_stats = {}
+
+        for _, fixture in completed.iterrows():
+            fixture_id = fixture['fixture_id']
+            home_team = fixture['HomeTeam']
+            away_team = fixture['AwayTeam']
+
+            # Get match statistics
+            params = {'fixture': fixture_id}
+            response = self._make_request('/fixtures/statistics', params)
+
+            if not response or not response.get('response'):
+                continue
+
+            # Parse xG for both teams
+            for idx, team_stats_data in enumerate(response['response']):
+                team_name = home_team if idx == 0 else away_team
+                is_home = idx == 0
+
+                # Initialize team stats if needed
+                if team_name not in team_stats:
+                    team_stats[team_name] = {
+                        'Team': team_name,
+                        'xG_for': [],
+                        'xG_against': [],
+                        'matches': 0
+                    }
+
+                # Extract xG
+                stats = team_stats_data.get('statistics', [])
+                for stat in stats:
+                    if 'expected_goals' in stat.get('type', '').lower():
+                        xg_value = float(stat.get('value', 0)) if stat.get('value') else 0
+
+                        # Add to xG for
+                        team_stats[team_name]['xG_for'].append(xg_value)
+
+                        # Add to opponent's xG against
+                        opponent = away_team if is_home else home_team
+                        if opponent not in team_stats:
+                            team_stats[opponent] = {
+                                'Team': opponent,
+                                'xG_for': [],
+                                'xG_against': [],
+                                'matches': 0
+                            }
+                        team_stats[opponent]['xG_against'].append(xg_value)
+
+                team_stats[team_name]['matches'] += 1
+
+        # Calculate averages
+        results = []
+        for team, data in team_stats.items():
+            matches = data['matches']
+            if matches > 0:
+                avg_xg_for = sum(data['xG_for']) / len(data['xG_for']) if data['xG_for'] else 0
+                avg_xg_against = sum(data['xG_against']) / len(data['xG_against']) if data['xG_against'] else 0
+
+                results.append({
+                    'Team': team,
+                    'Matches': matches,
+                    'xG_For': round(avg_xg_for, 2),
+                    'xG_Against': round(avg_xg_against, 2),
+                    'xG_Diff': round(avg_xg_for - avg_xg_against, 2)
+                })
+
+        df = pd.DataFrame(results)
+
+        if not df.empty:
+            df = df.sort_values('xG_For', ascending=False)
+            df.reset_index(drop=True, inplace=True)
+
+        # Cache the result
+        if self.use_cache and self.cache and not df.empty:
+            self.cache.set(cache_key, df)
+
+        print(f"✓ Calculated xG stats for {len(df)} teams")
+
+        return df
+
 
 def main():
     """Test API-Football client"""
