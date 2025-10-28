@@ -21,8 +21,17 @@ import re
 
 try:
     from .cache import get_cache
-except ImportError:
-    from cache import get_cache
+    from ..utils.season import get_current_season, get_season_string
+except (ImportError, ValueError):
+    # Handle both direct execution and package import issues
+    import sys
+    import os
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    parent_dir = os.path.dirname(current_dir)
+    if parent_dir not in sys.path:
+        sys.path.insert(0, parent_dir)
+    from data_sources.cache import get_cache
+    from utils.season import get_current_season, get_season_string
 
 # Cache configuration
 CACHE_EXPIRY_HOURS = 24  # Cache data for 24 hours
@@ -90,16 +99,19 @@ class FBrefScraper:
             print(f"Error fetching {url}: {e}")
             return None
 
-    def get_league_table(self, season: str = "2024-2025") -> pd.DataFrame:
+    def get_league_table(self, season: Optional[str] = None) -> pd.DataFrame:
         """
         Get current Bundesliga league table/standings (with caching)
 
         Args:
-            season: Season in format "YYYY-YYYY" (e.g., "2024-2025")
+            season: Season in format "YYYY-YYYY" (e.g., "2024-2025"), defaults to current season
 
         Returns:
             DataFrame with league table
         """
+        if season is None:
+            season = get_season_string(get_current_season())
+
         # Check cache first
         if self.use_cache and self.cache:
             cache_key = f"fbref_league_table_{season}"
@@ -167,17 +179,20 @@ class FBrefScraper:
             print(f"Error parsing league table: {e}")
             return pd.DataFrame()
 
-    def get_match_results(self, season: str = "2024-2025", limit: int = 50) -> pd.DataFrame:
+    def get_match_results(self, season: Optional[str] = None, limit: int = 50) -> pd.DataFrame:
         """
         Get recent match results (with caching)
 
         Args:
-            season: Season in format "YYYY-YYYY"
+            season: Season in format "YYYY-YYYY", defaults to current season
             limit: Maximum number of matches to return
 
         Returns:
             DataFrame with match results including xG data
         """
+        if season is None:
+            season = get_season_string(get_current_season())
+
         # Check cache first
         if self.use_cache and self.cache:
             cache_key = f"fbref_match_results_{season}_{limit}"
@@ -248,16 +263,19 @@ class FBrefScraper:
             print(f"Error parsing match results: {e}")
             return pd.DataFrame()
 
-    def get_team_xg_stats(self, season: str = "2024-2025") -> pd.DataFrame:
+    def get_team_xg_stats(self, season: Optional[str] = None) -> pd.DataFrame:
         """
         Get xG statistics for all teams (with caching)
 
         Args:
-            season: Season in format "YYYY-YYYY"
+            season: Season in format "YYYY-YYYY", defaults to current season
 
         Returns:
             DataFrame with team xG statistics
         """
+        if season is None:
+            season = get_season_string(get_current_season())
+
         # Check cache first
         if self.use_cache and self.cache:
             cache_key = f"fbref_team_xg_{season}"
@@ -308,16 +326,19 @@ class FBrefScraper:
             print(f"Error parsing xG statistics: {e}")
             return pd.DataFrame()
 
-    def get_team_stats(self, season: str = "2024-2025") -> Dict[str, pd.DataFrame]:
+    def get_team_stats(self, season: Optional[str] = None) -> Dict[str, pd.DataFrame]:
         """
         Get comprehensive team statistics
 
         Args:
-            season: Season in format "YYYY-YYYY"
+            season: Season in format "YYYY-YYYY", defaults to current season
 
         Returns:
             Dictionary with different stat categories
         """
+        if season is None:
+            season = get_season_string(get_current_season())
+
         stats = {}
 
         url = f"{self.BUNDESLIGA_URL}/Bundesliga-Stats"

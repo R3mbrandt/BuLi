@@ -15,8 +15,17 @@ from typing import Dict, Tuple, Optional
 
 try:
     from .api_football import APIFootballClient
-except ImportError:
-    from api_football import APIFootballClient
+    from ..utils.season import get_current_season
+except (ImportError, ValueError):
+    # Handle both direct execution and package import issues
+    import sys
+    import os
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    parent_dir = os.path.dirname(current_dir)
+    if parent_dir not in sys.path:
+        sys.path.insert(0, parent_dir)
+    from data_sources.api_football import APIFootballClient
+    from utils.season import get_current_season
 
 
 def _odds_to_probability(odds: float) -> float:
@@ -98,18 +107,21 @@ def _probability_to_lambda(home_prob: float, draw_prob: float, away_prob: float)
     return home_lambda, away_lambda
 
 
-def get_odds_strength(home_team: str, away_team: str, season: int = 2024) -> Tuple[float, float]:
+def get_odds_strength(home_team: str, away_team: str, season: Optional[int] = None) -> Tuple[float, float]:
     """
     Get normalized odds strength for prediction engine
 
     Args:
         home_team: Home team name
         away_team: Away team name
-        season: Season year
+        season: Season year (defaults to current season)
 
     Returns:
         Tuple of (home_strength, away_strength) normalized to 0-1
     """
+    if season is None:
+        season = get_current_season()
+
     client = APIFootballClient()
     odds_data = client.get_match_odds(home_team, away_team, season)
 
@@ -144,18 +156,21 @@ def get_odds_strength(home_team: str, away_team: str, season: int = 2024) -> Tup
     return home_prob / total, away_prob / total
 
 
-def get_odds_lambdas(home_team: str, away_team: str, season: int = 2024) -> Tuple[float, float]:
+def get_odds_lambdas(home_team: str, away_team: str, season: Optional[int] = None) -> Tuple[float, float]:
     """
     Get expected goals (lambdas) from betting odds
 
     Args:
         home_team: Home team name
         away_team: Away team name
-        season: Season year
+        season: Season year (defaults to current season)
 
     Returns:
         Tuple of (home_lambda, away_lambda)
     """
+    if season is None:
+        season = get_current_season()
+
     client = APIFootballClient()
     odds_data = client.get_match_odds(home_team, away_team, season)
 
@@ -183,18 +198,21 @@ def get_odds_lambdas(home_team: str, away_team: str, season: int = 2024) -> Tupl
     return _probability_to_lambda(fair_probs['home'], fair_probs['draw'], fair_probs['away'])
 
 
-def get_odds_data(home_team: str, away_team: str, season: int = 2024) -> Optional[Dict]:
+def get_odds_data(home_team: str, away_team: str, season: Optional[int] = None) -> Optional[Dict]:
     """
     Get complete odds data for a match
 
     Args:
         home_team: Home team name
         away_team: Away team name
-        season: Season year
+        season: Season year (defaults to current season)
 
     Returns:
         Complete odds data including all bookmakers
     """
+    if season is None:
+        season = get_current_season()
+
     client = APIFootballClient()
     return client.get_match_odds(home_team, away_team, season)
 

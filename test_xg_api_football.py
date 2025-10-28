@@ -20,7 +20,7 @@ client = APIFootballClient()
 print("\n1. Getting xG for specific match:")
 print("-" * 80)
 
-xg_data = client.get_match_xg("Heidenheim", "Frankfurt", season=2024)
+xg_data = client.get_match_xg("Heidenheim", "Frankfurt")
 
 if xg_data:
     print(f"Match: {xg_data['home_team']} vs {xg_data['away_team']}")
@@ -30,10 +30,10 @@ else:
     print("⚠️  No xG data available for this match")
 
 # Test 2: Get team xG stats for season
-print("\n2. Getting team xG statistics for season 2024:")
+print("\n2. Getting team xG statistics for current season:")
 print("-" * 80)
 
-team_stats = client.get_team_xg_stats(season=2024)
+team_stats = client.get_team_xg_stats()
 
 if team_stats is not None and not team_stats.empty:
     print(f"✓ Got xG stats for {len(team_stats)} teams")

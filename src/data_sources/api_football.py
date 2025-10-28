@@ -21,8 +21,16 @@ import os
 
 try:
     from .cache import get_cache
-except ImportError:
-    from cache import get_cache
+    from ..utils.season import get_current_season
+except (ImportError, ValueError):
+    # Handle both direct execution and package import issues
+    import sys
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    parent_dir = os.path.dirname(current_dir)
+    if parent_dir not in sys.path:
+        sys.path.insert(0, parent_dir)
+    from data_sources.cache import get_cache
+    from utils.season import get_current_season
 
 # Cache configuration
 CACHE_EXPIRY_HOURS_ODDS = 6      # Odds change frequently
@@ -144,18 +152,21 @@ class APIFootballClient:
 
         return normalized
 
-    def find_fixture_id(self, home_team: str, away_team: str, season: int = 2024) -> Optional[int]:
+    def find_fixture_id(self, home_team: str, away_team: str, season: Optional[int] = None) -> Optional[int]:
         """
         Find fixture ID for a match between two teams
 
         Args:
             home_team: Home team name
             away_team: Away team name
-            season: Season year
+            season: Season year (defaults to current season)
 
         Returns:
             Fixture ID or None
         """
+        if season is None:
+            season = get_current_season()
+
         # Check cache first
         cache_key = f"fixture_id_{home_team}_{away_team}_{season}"
         if self.use_cache and self.cache:
@@ -191,18 +202,21 @@ class APIFootballClient:
         print(f"⚠️  No fixture found for {home_team} vs {away_team}")
         return None
 
-    def get_match_odds(self, home_team: str, away_team: str, season: int = 2024) -> Optional[Dict]:
+    def get_match_odds(self, home_team: str, away_team: str, season: Optional[int] = None) -> Optional[Dict]:
         """
         Get betting odds for a match from multiple bookmakers
 
         Args:
             home_team: Home team name
             away_team: Away team name
-            season: Season year
+            season: Season year (defaults to current season)
 
         Returns:
             Dictionary with odds from Pinnacle, Betfair, and Bet365
         """
+        if season is None:
+            season = get_current_season()
+
         # Check cache first
         cache_key = f"odds_{home_team}_{away_team}_{season}"
         if self.use_cache and self.cache:
@@ -381,17 +395,20 @@ class APIFootballClient:
             'source': 'mock'
         }
 
-    def get_bundesliga_fixtures(self, season: int = 2024, matchday: Optional[int] = None) -> Optional[pd.DataFrame]:
+    def get_bundesliga_fixtures(self, season: Optional[int] = None, matchday: Optional[int] = None) -> Optional[pd.DataFrame]:
         """
         Get Bundesliga fixtures for a season
 
         Args:
-            season: Season year (e.g., 2024 for 2024/2025 season)
+            season: Season year (defaults to current season, e.g., 2024 for 2024/2025 season)
             matchday: Optional specific matchday
 
         Returns:
             DataFrame with fixtures
         """
+        if season is None:
+            season = get_current_season()
+
         # Check cache
         cache_key = f"fixtures_bundesliga_{season}_{matchday or 'all'}"
         if self.use_cache and self.cache:
@@ -438,16 +455,19 @@ class APIFootballClient:
 
         return df
 
-    def get_bundesliga_standings(self, season: int = 2024) -> Optional[pd.DataFrame]:
+    def get_bundesliga_standings(self, season: Optional[int] = None) -> Optional[pd.DataFrame]:
         """
         Get Bundesliga standings/table
 
         Args:
-            season: Season year
+            season: Season year (defaults to current season)
 
         Returns:
             DataFrame with standings
         """
+        if season is None:
+            season = get_current_season()
+
         # Check cache
         cache_key = f"standings_bundesliga_{season}"
         if self.use_cache and self.cache:
@@ -493,16 +513,19 @@ class APIFootballClient:
 
         return df
 
-    def check_xg_availability(self, season: int = 2024) -> bool:
+    def check_xg_availability(self, season: Optional[int] = None) -> bool:
         """
         Check if xG data is available for Bundesliga
 
         Args:
-            season: Season year
+            season: Season year (defaults to current season)
 
         Returns:
             True if xG data is available
         """
+        if season is None:
+            season = get_current_season()
+
         print(f"🔍 Checking xG data availability for Bundesliga {season}...")
 
         # Get a sample fixture
@@ -541,18 +564,21 @@ class APIFootballClient:
         print("✗ xG data NOT available for Bundesliga in API-Football")
         return False
 
-    def get_match_xg(self, home_team: str, away_team: str, season: int = 2024) -> Optional[Dict]:
+    def get_match_xg(self, home_team: str, away_team: str, season: Optional[int] = None) -> Optional[Dict]:
         """
         Get xG data for a specific match
 
         Args:
             home_team: Home team name
             away_team: Away team name
-            season: Season year
+            season: Season year (defaults to current season)
 
         Returns:
             Dictionary with xG data for both teams
         """
+        if season is None:
+            season = get_current_season()
+
         # Find fixture ID
         fixture_id = self.find_fixture_id(home_team, away_team, season)
 
@@ -599,16 +625,19 @@ class APIFootballClient:
 
         return result
 
-    def get_team_xg_stats(self, season: int = 2024) -> Optional[pd.DataFrame]:
+    def get_team_xg_stats(self, season: Optional[int] = None) -> Optional[pd.DataFrame]:
         """
         Get xG statistics for all Bundesliga teams in a season
 
         Args:
-            season: Season year
+            season: Season year (defaults to current season)
 
         Returns:
             DataFrame with team xG statistics
         """
+        if season is None:
+            season = get_current_season()
+
         # Check cache
         cache_key = f"team_xg_stats_{season}"
         if self.use_cache and self.cache:
