@@ -224,10 +224,16 @@ def main():
     print("Betting Odds Integration (API-Football) - Test")
     print("=" * 80)
 
+    # IMPORTANT: Use season 2024 for 2024/25 season
+    # (System date might be in future, causing season detection to return wrong year)
+    season = 2024
+    print(f"\nUsing season: {season} (2024/25)")
+    print("=" * 80)
+
     test_matches = [
-        ("Bayern München", "VfL Bochum"),
-        ("VfB Stuttgart", "RB Leipzig"),
-        ("SC Freiburg", "Werder Bremen")
+        ("Heidenheim", "Eintracht Frankfurt"),
+        ("Augsburg", "Dortmund"),
+        ("RB Leipzig", "VfB Stuttgart")
     ]
 
     for home, away in test_matches:
@@ -235,19 +241,25 @@ def main():
         print(f"Match: {home} vs {away}")
         print('-' * 80)
 
-        # Get complete odds data
-        odds_data = get_odds_data(home, away)
+        # Get complete odds data with explicit season
+        odds_data = get_odds_data(home, away, season=season)
 
         if odds_data:
             print(f"\n📊 Odds from Multiple Bookmakers:")
 
+            has_odds = False
             for bookmaker in ['pinnacle', 'betfair', 'bet365']:
                 bm_odds = odds_data.get(bookmaker)
                 if bm_odds:
+                    has_odds = True
                     print(f"\n  {bookmaker.capitalize()}:")
                     print(f"    Home: {bm_odds.get('home', 'N/A'):.2f}")
                     print(f"    Draw: {bm_odds.get('draw', 'N/A'):.2f}")
                     print(f"    Away: {bm_odds.get('away', 'N/A'):.2f}")
+
+            if not has_odds:
+                print("  ⚠️  No bookmaker odds available")
+                print(f"  Source: {odds_data.get('source', 'unknown')}")
 
             if odds_data.get('best_odds'):
                 print(f"\n  Best Available:")
@@ -256,16 +268,18 @@ def main():
                 print(f"    Away: {odds_data['best_odds']['away']:.2f}")
 
             # Get strengths for prediction
-            home_str, away_str = get_odds_strength(home, away)
+            home_str, away_str = get_odds_strength(home, away, season=season)
             print(f"\n✨ Normalized Strengths (for prediction):")
             print(f"  Home: {home_str:.1%}")
             print(f"  Away: {away_str:.1%}")
 
             # Get lambdas
-            home_lambda, away_lambda = get_odds_lambdas(home, away)
+            home_lambda, away_lambda = get_odds_lambdas(home, away, season=season)
             print(f"\n⚽ Expected Goals (from odds):")
             print(f"  Home: {home_lambda:.2f}")
             print(f"  Away: {away_lambda:.2f}")
+        else:
+            print("  ⚠️  No odds data available")
 
     print("\n" + "=" * 80)
     print("Betting Odds Test Completed!")
