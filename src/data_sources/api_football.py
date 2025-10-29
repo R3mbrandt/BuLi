@@ -278,25 +278,46 @@ class APIFootballClient:
             'bet365': None,
             'best_odds': None,
             'fair_odds': None,
-            'timestamp': datetime.now().isoformat()
+            'timestamp': datetime.now().isoformat(),
+            'source': 'api'
         }
 
-        if not response:
+        if not response or len(response) == 0:
+            return result
+
+        # Response structure: [{ "bookmakers": [{...}] }]
+        # Get first item (fixture odds)
+        fixture_odds = response[0]
+        bookmakers = fixture_odds.get('bookmakers', [])
+
+        if not bookmakers:
+            print("⚠️  No bookmakers found in odds response")
             return result
 
         # Process each bookmaker
-        for odds_entry in response:
-            bookmaker_name = odds_entry.get('bookmaker', {}).get('name', '').lower()
+        for bookmaker in bookmakers:
+            bookmaker_id = bookmaker.get('id')
+            bookmaker_name = bookmaker.get('name', '').lower()
+
+            # Debug: Show which bookmaker we're processing
+            # print(f"Processing bookmaker: {bookmaker.get('name')} (ID: {bookmaker_id})")
 
             # Find Match Winner market (1X2)
-            for bet in odds_entry.get('bets', []):
+            bets = bookmaker.get('bets', [])
+            for bet in bets:
                 if bet.get('name') == 'Match Winner':
                     values = bet.get('values', [])
 
                     odds_dict = {}
                     for val in values:
                         label = val.get('value')
-                        odd = float(val.get('odd', 0))
+                        odd_str = val.get('odd', '0')
+
+                        # Convert to float
+                        try:
+                            odd = float(odd_str)
+                        except (ValueError, TypeError):
+                            continue
 
                         if label == 'Home':
                             odds_dict['home'] = odd
@@ -305,15 +326,20 @@ class APIFootballClient:
                         elif label == 'Away':
                             odds_dict['away'] = odd
 
-                    # Store by bookmaker
-                    if 'pinnacle' in bookmaker_name:
-                        result['pinnacle'] = odds_dict
-                    elif 'betfair' in bookmaker_name:
-                        result['betfair'] = odds_dict
-                        # Betfair Exchange has no margin - use as "fair odds"
-                        result['fair_odds'] = odds_dict
-                    elif 'bet365' in bookmaker_name:
-                        result['bet365'] = odds_dict
+                    # Only store if we have all three odds
+                    if len(odds_dict) == 3:
+                        # Map by bookmaker ID or name
+                        # Pinnacle: ID 11
+                        if bookmaker_id == 11 or 'pinnacle' in bookmaker_name:
+                            result['pinnacle'] = odds_dict
+                        # Betfair Exchange: ID 3
+                        elif bookmaker_id == 3 or 'betfair' in bookmaker_name:
+                            result['betfair'] = odds_dict
+                            # Betfair Exchange has no margin - use as "fair odds"
+                            result['fair_odds'] = odds_dict
+                        # Bet365: ID 8
+                        elif bookmaker_id == 8 or 'bet365' in bookmaker_name:
+                            result['bet365'] = odds_dict
 
         # Calculate best odds (highest from any bookmaker)
         result['best_odds'] = self._calculate_best_odds(result)
