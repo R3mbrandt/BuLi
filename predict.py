@@ -304,6 +304,24 @@ class BundesligaPredictor:
         home_data = self.get_team_data(team1)
         away_data = self.get_team_data(team2)
 
+        # Try to find the actual match in the data
+        match_info = None
+        match = self.matches[
+            (self.matches['HomeTeam'].str.contains(home_data['full_name'], case=False, na=False)) &
+            (self.matches['AwayTeam'].str.contains(away_data['full_name'], case=False, na=False))
+        ]
+
+        if not match.empty:
+            match_row = match.iloc[0]
+            match_info = {
+                'date': match_row.get('Date'),
+                'is_finished': match_row.get('IsFinished', False),
+                'home_goals': match_row.get('HomeGoals') if match_row.get('IsFinished', False) else None,
+                'away_goals': match_row.get('AwayGoals') if match_row.get('IsFinished', False) else None,
+                'stadium': match_row.get('Stadium', None),
+                'week': match_row.get('Week', None)
+            }
+
         # Debug output for xG values
         if debug or self.debug:
             print("\n📊 DEBUG: Expected Goals (xG) Statistics")
@@ -332,7 +350,8 @@ class BundesligaPredictor:
             away_data['full_name'],
             home_data,
             away_data,
-            h2h if not h2h.empty else None
+            h2h if not h2h.empty else None,
+            match_info=match_info
         )
 
         # Print report

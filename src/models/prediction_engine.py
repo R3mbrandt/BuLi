@@ -250,7 +250,8 @@ class BundesligaPredictionEngine:
 
     def predict_match(self, home_team: str, away_team: str,
                      home_data: Dict, away_data: Dict,
-                     h2h_matches: Optional[pd.DataFrame] = None) -> Dict:
+                     h2h_matches: Optional[pd.DataFrame] = None,
+                     match_info: Optional[Dict] = None) -> Dict:
         """
         Predict match outcome using all available data
 
@@ -260,6 +261,7 @@ class BundesligaPredictionEngine:
             home_data: Dictionary with home team data (elo, xg_for, xg_against, value, injuries)
             away_data: Dictionary with away team data
             h2h_matches: DataFrame with head-to-head matches
+            match_info: Optional match information (date, result if finished, etc.)
 
         Returns:
             Dictionary with comprehensive prediction
@@ -443,7 +445,8 @@ class BundesligaPredictionEngine:
             },
             'combined_strength': {'home': combined_home, 'away': combined_away},
             'odds_mode': self.odds_mode if self.use_odds else None,
-            'odds_data': odds_data  # Complete odds from bookmakers
+            'odds_data': odds_data,  # Complete odds from bookmakers
+            'match_info': match_info  # Match date, time, result if finished
         }
 
     def format_prediction_report(self, prediction: Dict) -> str:
@@ -460,6 +463,45 @@ class BundesligaPredictionEngine:
         report.append("=" * 70)
         report.append(f"MATCH PREDICTION: {prediction['home_team']} vs {prediction['away_team']}")
         report.append("=" * 70)
+
+        # Show match information if available
+        match_info = prediction.get('match_info')
+        if match_info:
+            report.append("\n📅 MATCH INFORMATION:")
+            report.append("-" * 70)
+
+            # Display date and time
+            if match_info.get('date'):
+                match_date = match_info['date']
+                # Format date/time based on type
+                if hasattr(match_date, 'strftime'):
+                    date_str = match_date.strftime('%A, %d %B %Y at %H:%M')
+                else:
+                    date_str = str(match_date)
+                report.append(f"  Date/Time: {date_str}")
+
+            # Display matchday/week
+            if match_info.get('week'):
+                report.append(f"  Matchday:  {match_info['week']}")
+
+            # Display stadium
+            if match_info.get('stadium'):
+                report.append(f"  Stadium:   {match_info['stadium']}")
+
+            # Display actual result if match is finished
+            if match_info.get('is_finished') and match_info.get('home_goals') is not None:
+                home_goals = match_info['home_goals']
+                away_goals = match_info['away_goals']
+                report.append(f"\n  ⚽ ACTUAL RESULT: {int(home_goals)}:{int(away_goals)}")
+
+                # Add result interpretation
+                if home_goals > away_goals:
+                    result_text = f"{prediction['home_team']} won"
+                elif away_goals > home_goals:
+                    result_text = f"{prediction['away_team']} won"
+                else:
+                    result_text = "Match ended in a draw"
+                report.append(f"  {result_text}")
 
         report.append("\n📊 MATCH OUTCOME PROBABILITIES:")
         report.append("-" * 70)
