@@ -39,18 +39,20 @@ class BundesligaPredictionEngine:
     Main prediction engine that combines all factors
     """
 
-    def __init__(self, use_odds: bool = False, odds_mode: str = 'factor'):
+    def __init__(self, use_odds: bool = False, odds_mode: str = 'factor', use_cache: bool = True):
         """
         Initialize prediction engine
 
         Args:
             use_odds: If True, incorporate betting odds into predictions
             odds_mode: How to use odds - 'factor' (as additional factor) or 'calibration' (calibrate lambdas)
+            use_cache: If True, use cache for API requests (default: True)
         """
         self.elo_system = ELORatingSystem(k_factor=32, home_advantage=100)
         self.poisson_predictor = PoissonMatchPredictor()
         self.use_odds = use_odds
         self.odds_mode = odds_mode  # 'factor' or 'calibration'
+        self.use_cache = use_cache
 
         # Weights for different factors
         if use_odds and odds_mode == 'factor':
@@ -295,7 +297,7 @@ class BundesligaPredictionEngine:
         odds_home, odds_away = 0.5, 0.5
         if self.use_odds and self.odds_mode == 'factor':
             try:
-                odds_home, odds_away = get_odds_strength(home_team, away_team)
+                odds_home, odds_away = get_odds_strength(home_team, away_team, use_cache=self.use_cache)
             except Exception as e:
                 print(f"⚠️  Could not fetch odds: {e}")
                 odds_home, odds_away = 0.5, 0.5
@@ -385,7 +387,7 @@ class BundesligaPredictionEngine:
         # Option B: Calibrate lambdas with betting odds
         if self.use_odds and self.odds_mode == 'calibration':
             try:
-                odds_lambda_home, odds_lambda_away = get_odds_lambdas(home_team, away_team)
+                odds_lambda_home, odds_lambda_away = get_odds_lambdas(home_team, away_team, use_cache=self.use_cache)
                 # Mix our lambdas (70%) with market lambdas (30%)
                 # Market has valuable info but we trust our model more
                 home_lambda = 0.7 * home_lambda + 0.3 * odds_lambda_home
