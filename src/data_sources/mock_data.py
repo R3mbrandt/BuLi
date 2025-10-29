@@ -69,12 +69,6 @@ BUNDESLIGA_TEAMS = {
         'injuries': 3,
         'base_elo': 1690
     },
-    '1. FC Köln': {
-        'squad_value': 110_000_000,
-        'short_name': 'Köln',
-        'injuries': 5,
-        'base_elo': 1630
-    },
     'TSG Hoffenheim': {
         'squad_value': 200_000_000,
         'short_name': 'Hoffenheim',
@@ -111,11 +105,17 @@ BUNDESLIGA_TEAMS = {
         'injuries': 2,
         'base_elo': 1620
     },
-    'SV Darmstadt 98': {
-        'squad_value': 60_000_000,
-        'short_name': 'Darmstadt',
-        'injuries': 4,
+    'FC St. Pauli': {
+        'squad_value': 75_000_000,
+        'short_name': 'St. Pauli',
+        'injuries': 3,
         'base_elo': 1600
+    },
+    'Holstein Kiel': {
+        'squad_value': 55_000_000,
+        'short_name': 'Kiel',
+        'injuries': 2,
+        'base_elo': 1580
     }
 }
 
