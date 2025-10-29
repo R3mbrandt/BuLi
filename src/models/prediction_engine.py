@@ -24,14 +24,14 @@ except ImportError:
 
 # Import betting odds (works for both cases)
 try:
-    from ..data_sources.betting_odds import get_odds_strength, get_odds_lambdas
+    from ..data_sources.betting_odds import get_odds_strength, get_odds_lambdas, get_odds_data
 except (ImportError, ValueError):
     try:
-        from data_sources.betting_odds import get_odds_strength, get_odds_lambdas
+        from data_sources.betting_odds import get_odds_strength, get_odds_lambdas, get_odds_data
     except ImportError:
         import sys
         sys.path.append('/home/user/BuLi/src')
-        from data_sources.betting_odds import get_odds_strength, get_odds_lambdas
+        from data_sources.betting_odds import get_odds_strength, get_odds_lambdas, get_odds_data
 
 
 class BundesligaPredictionEngine:
@@ -295,12 +295,19 @@ class BundesligaPredictionEngine:
 
         # Get betting odds if enabled (Option A: as factor)
         odds_home, odds_away = 0.5, 0.5
-        if self.use_odds and self.odds_mode == 'factor':
+        odds_data = None
+        if self.use_odds:
             try:
-                odds_home, odds_away = get_odds_strength(home_team, away_team, use_cache=self.use_cache)
+                # Get complete odds data for display
+                odds_data = get_odds_data(home_team, away_team, use_cache=self.use_cache)
+
+                # Get odds strength for factor calculation
+                if self.odds_mode == 'factor':
+                    odds_home, odds_away = get_odds_strength(home_team, away_team, use_cache=self.use_cache)
             except Exception as e:
                 print(f"⚠️  Could not fetch odds: {e}")
                 odds_home, odds_away = 0.5, 0.5
+                odds_data = None
 
         # Combine strengths using weights
         if self.use_odds and self.odds_mode == 'factor':
@@ -435,7 +442,8 @@ class BundesligaPredictionEngine:
                 'injury_penalty': {'home': injury_penalty_home, 'away': injury_penalty_away}
             },
             'combined_strength': {'home': combined_home, 'away': combined_away},
-            'odds_mode': self.odds_mode if self.use_odds else None
+            'odds_mode': self.odds_mode if self.use_odds else None,
+            'odds_data': odds_data  # Complete odds from bookmakers
         }
 
     def format_prediction_report(self, prediction: Dict) -> str:
@@ -479,6 +487,30 @@ class BundesligaPredictionEngine:
         report.append(f"  Under 2.5 Goals: {prediction['under_2_5_prob']:.1%}")
         report.append(f"  BTTS Yes:        {prediction['btts_yes_prob']:.1%}")
         report.append(f"  BTTS No:         {prediction['btts_no_prob']:.1%}")
+
+        # Show betting odds if available
+        odds_data = prediction.get('odds_data')
+        if odds_data:
+            report.append("\n📊 BETTING ODDS (1X2):")
+            report.append("-" * 70)
+
+            # Display odds from different bookmakers
+            has_any_odds = False
+            for bookmaker_name, bookmaker_key in [
+                ('Pinnacle', 'pinnacle'),
+                ('Betfair Exchange', 'betfair'),
+                ('Bet365', 'bet365'),
+                ('Best Odds', 'best_odds')
+            ]:
+                odds = odds_data.get(bookmaker_key)
+                if odds and isinstance(odds, dict) and all(k in odds for k in ['home', 'draw', 'away']):
+                    has_any_odds = True
+                    report.append(f"  {bookmaker_name:18s}: {odds['home']:>5.2f} / {odds['draw']:>5.2f} / {odds['away']:>5.2f}")
+
+            if not has_any_odds:
+                report.append("  ⚠️  No odds available from bookmakers")
+            else:
+                report.append(f"  {'':18s}  (Home / Draw / Away)")
 
         report.append("\n🔍 FACTOR BREAKDOWN:")
         report.append("-" * 70)
