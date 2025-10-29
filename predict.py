@@ -42,7 +42,7 @@ class BundesligaPredictor:
     """Main predictor class"""
 
     def __init__(self, use_live_data: bool = False, debug: bool = False,
-                 use_odds: bool = False, odds_mode: str = 'factor'):
+                 use_odds: bool = False, odds_mode: str = 'factor', use_cache: bool = True):
         """
         Initialize predictor
 
@@ -51,14 +51,19 @@ class BundesligaPredictor:
             debug: If True, show detailed debug information
             use_odds: If True, incorporate betting odds into predictions
             odds_mode: How to use odds - 'factor' or 'calibration'
+            use_cache: If True, use cache for API requests (default: True)
         """
         self.use_live_data = use_live_data
         self.debug = debug
         self.use_odds = use_odds
         self.odds_mode = odds_mode
-        self.engine = BundesligaPredictionEngine(use_odds=use_odds, odds_mode=odds_mode)
+        self.use_cache = use_cache
+        self.engine = BundesligaPredictionEngine(use_odds=use_odds, odds_mode=odds_mode, use_cache=use_cache)
         self.elo_system = ELORatingSystem()
         self.data_source = "mock"  # Track actual data source used
+
+        if not use_cache:
+            print("🚫 Cache disabled - fetching fresh data")
 
         # Load data
         if use_live_data:
@@ -148,7 +153,7 @@ class BundesligaPredictor:
             print("\n📊 Attempting to fetch xG data from API-Football...")
             from data_sources.api_football import APIFootballClient
 
-            client = APIFootballClient()
+            client = APIFootballClient(use_cache=self.use_cache)
 
             # Get team xG statistics (uses current season by default)
             xg_stats_df = client.get_team_xg_stats()
@@ -393,6 +398,7 @@ Examples:
     parser.add_argument('--use-odds', action='store_true', help='Incorporate betting odds into predictions')
     parser.add_argument('--odds-mode', choices=['factor', 'calibration'], default='factor',
                        help='How to use odds: "factor" (as additional factor) or "calibration" (calibrate lambdas)')
+    parser.add_argument('--no-cache', action='store_true', help='Disable caching (fetch fresh data every time)')
 
     args = parser.parse_args()
 
@@ -401,7 +407,8 @@ Examples:
         use_live_data=args.live,
         debug=args.debug,
         use_odds=args.use_odds,
-        odds_mode=args.odds_mode
+        odds_mode=args.odds_mode,
+        use_cache=not args.no_cache
     )
 
     # Execute commands

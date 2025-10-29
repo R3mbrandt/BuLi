@@ -107,7 +107,7 @@ def _probability_to_lambda(home_prob: float, draw_prob: float, away_prob: float)
     return home_lambda, away_lambda
 
 
-def get_odds_strength(home_team: str, away_team: str, season: Optional[int] = None) -> Tuple[float, float]:
+def get_odds_strength(home_team: str, away_team: str, season: Optional[int] = None, use_cache: bool = True) -> Tuple[float, float]:
     """
     Get normalized odds strength for prediction engine
 
@@ -115,6 +115,7 @@ def get_odds_strength(home_team: str, away_team: str, season: Optional[int] = No
         home_team: Home team name
         away_team: Away team name
         season: Season year (defaults to current season)
+        use_cache: If True, use cache for API requests (default: True)
 
     Returns:
         Tuple of (home_strength, away_strength) normalized to 0-1
@@ -122,7 +123,7 @@ def get_odds_strength(home_team: str, away_team: str, season: Optional[int] = No
     if season is None:
         season = get_current_season()
 
-    client = APIFootballClient()
+    client = APIFootballClient(use_cache=use_cache)
     odds_data = client.get_match_odds(home_team, away_team, season)
 
     if not odds_data:
@@ -156,7 +157,7 @@ def get_odds_strength(home_team: str, away_team: str, season: Optional[int] = No
     return home_prob / total, away_prob / total
 
 
-def get_odds_lambdas(home_team: str, away_team: str, season: Optional[int] = None) -> Tuple[float, float]:
+def get_odds_lambdas(home_team: str, away_team: str, season: Optional[int] = None, use_cache: bool = True) -> Tuple[float, float]:
     """
     Get expected goals (lambdas) from betting odds
 
@@ -164,6 +165,7 @@ def get_odds_lambdas(home_team: str, away_team: str, season: Optional[int] = Non
         home_team: Home team name
         away_team: Away team name
         season: Season year (defaults to current season)
+        use_cache: If True, use cache for API requests (default: True)
 
     Returns:
         Tuple of (home_lambda, away_lambda)
@@ -171,7 +173,7 @@ def get_odds_lambdas(home_team: str, away_team: str, season: Optional[int] = Non
     if season is None:
         season = get_current_season()
 
-    client = APIFootballClient()
+    client = APIFootballClient(use_cache=use_cache)
     odds_data = client.get_match_odds(home_team, away_team, season)
 
     if not odds_data:
@@ -198,7 +200,7 @@ def get_odds_lambdas(home_team: str, away_team: str, season: Optional[int] = Non
     return _probability_to_lambda(fair_probs['home'], fair_probs['draw'], fair_probs['away'])
 
 
-def get_odds_data(home_team: str, away_team: str, season: Optional[int] = None) -> Optional[Dict]:
+def get_odds_data(home_team: str, away_team: str, season: Optional[int] = None, use_cache: bool = True) -> Optional[Dict]:
     """
     Get complete odds data for a match
 
@@ -206,6 +208,7 @@ def get_odds_data(home_team: str, away_team: str, season: Optional[int] = None) 
         home_team: Home team name
         away_team: Away team name
         season: Season year (defaults to current season)
+        use_cache: If True, use cache for API requests (default: True)
 
     Returns:
         Complete odds data including all bookmakers
@@ -213,7 +216,7 @@ def get_odds_data(home_team: str, away_team: str, season: Optional[int] = None) 
     if season is None:
         season = get_current_season()
 
-    client = APIFootballClient()
+    client = APIFootballClient(use_cache=use_cache)
     return client.get_match_odds(home_team, away_team, season)
 
 
